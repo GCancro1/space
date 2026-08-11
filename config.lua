@@ -22,6 +22,26 @@ return {
     -- Rotation
     BODY_ROTATION_PER_TURN = 1,
 
+    -- Particles
+    THRUSTER_LIFETIME = 0.5,
+    THRUSTER_SPEED_MIN = 50,
+    THRUSTER_SPEED_MAX = 100,
+    THRUSTER_SIZE_MIN = 2,
+    THRUSTER_SIZE_MAX = 5,
+    EXPLOSION_LIFETIME = 0.8,
+    EXPLOSION_PARTICLE_COUNT = 30,
+
+    -- Animation
+    SHIP_ANIMATION_SPEED = 0.15,
+    -- Movement animation
+    MOVE_STEP_SPEED = 0.15,       -- seconds per tile step
+    ROTATE_DURATION = 0.25,       -- seconds for body rotation (45 deg)
+    TURRET_ROTATE_DURATION = 0.2, -- seconds for turret rotation
+
+    -- Post-processing
+    ENABLE_VIGNETTE = true,
+    VIGNETTE_SOFTNESS = 0.4,
+
     -- Colors
     GRID_LINE_COLOR = {0.2, 0.2, 0.2},
     GRID_BG_COLOR = {0.05, 0.05, 0.1},
@@ -44,4 +64,30 @@ return {
     },
 
     FACING_LIST = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"},
+
+    -- Sidebar
+    SIDEBAR_WIDTH = 400,
+    SIDEBAR_BG = {0.08, 0.08, 0.12},
+    SIDEBAR_BORDER = {0.25, 0.25, 0.3},
+    SIDEBAR_SECTION_BG = {0.12, 0.12, 0.16},
+    SIDEBAR_SECTION_BORDER = {0.2, 0.2, 0.25},
+    SIDEBAR_CARD_RADIUS = 8,
+    -- Card colors (action types)
+    CARD_THRUST_BG = {0.15, 0.2, 0.35},
+    CARD_THRUST_HOVER = {0.2, 0.25, 0.4},
+    CARD_ROTATE_BG = {0.15, 0.3, 0.15},
+    CARD_ROTATE_HOVER = {0.2, 0.35, 0.2},
+    CARD_TURRET_BG = {0.3, 0.25, 0.1},
+    CARD_TURRET_HOVER = {0.35, 0.3, 0.15},
+    CARD_SHOOT_BG = {0.3, 0.1, 0.1},
+    CARD_SHOOT_HOVER = {0.35, 0.15, 0.15},
+    CARD_SPECIAL_BG = {0.25, 0.1, 0.3},
+    CARD_SPECIAL_HOVER = {0.3, 0.15, 0.35},
+    -- Card selected state
+    CARD_SELECTED_BG = {0.3, 0.35, 0.45},
+    CARD_SELECTED_BORDER = {0.5, 0.6, 0.8},
+    -- Button colors
+    SIDEBAR_BTN_BG = {0.2, 0.25, 0.3},
+    SIDEBAR_BTN_HOVER = {0.3, 0.35, 0.45},
+    SIDEBAR_BTN_ACTIVE = {0.4, 0.5, 0.6},
 }

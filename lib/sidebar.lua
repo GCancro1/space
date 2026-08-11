@@ -94,8 +94,8 @@ function Sidebar:update(dt, ships, activePlayer, turnNumber)
     -- Turn header space
     suit.layout:row(w - pad * 2, 60)
 
-    -- Ship info space
-    suit.layout:row(w - pad * 2, 120)
+    -- Ship info space (4 players × ~52px each + title + padding)
+    suit.layout:row(w - pad * 2, 230)
 
     -- ===== ACTION CARDS =====
     local cardH = 72
@@ -277,7 +277,7 @@ function Sidebar:drawTurnHeader()
     love.graphics.print("Player " .. self.activePlayer, x + pad + 24, y + 34)
 end
 
--- Ship info section
+-- Ship info section (all players)
 function Sidebar:drawShipInfoSection()
     local f = getFonts()
     local x = Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH
@@ -285,7 +285,7 @@ function Sidebar:drawShipInfoSection()
     local pad = 16
     local sectionPad = 12
     local y = 60
-    local h = 120
+    local h = 230
 
     -- Section bg
     love.graphics.setColor(Config.SIDEBAR_SECTION_BG)
@@ -294,62 +294,104 @@ function Sidebar:drawShipInfoSection()
     -- Section title
     love.graphics.setFont(f.label)
     love.graphics.setColor(0.5, 0.5, 0.6)
-    love.graphics.print("SHIP STATUS", x + pad + sectionPad, y + 6)
+    love.graphics.print("PLAYERS", x + pad + sectionPad, y + 6)
 
-    local ship = self.ships[self.activePlayer]
-    if not ship then
-        love.graphics.setFont(f.value)
-        love.graphics.setColor(0.4, 0.4, 0.4)
-        love.graphics.print("No ship", x + pad + sectionPad, y + 40)
-        return
+    local playerH = 48
+    local playerY = y + 24
+
+    for i = 1, 4 do
+        local ship = self.ships[i]
+        local isActive = (i == self.activePlayer)
+        local color = PLAYER_COLORS[i] or {0.5, 0.5, 0.5}
+
+        -- Player row background (subtle highlight for active)
+        if isActive then
+            love.graphics.setColor(color[1], color[2], color[3], 0.08)
+            love.graphics.rectangle("fill", x + pad + 4, playerY, w - pad * 2 - 8, playerH - 4, 6)
+        end
+
+        local rowX = x + pad + sectionPad
+        local rowY = playerY + 4
+
+        -- Player color dot
+        love.graphics.setColor(color[1], color[2], color[3], isActive and 1.0 or 0.5)
+        love.graphics.circle("fill", rowX + 6, rowY + 12, 6)
+
+        -- Active indicator ring
+        if isActive then
+            love.graphics.setColor(color[1], color[2], color[3], 0.4)
+                            love.graphics.circle("line", rowX + 6, rowY + 12, 9)
+        end
+
+        -- Player number
+        love.graphics.setFont(f.cardLabel)
+        love.graphics.setColor(isActive and {0.9, 0.9, 0.9} or {0.4, 0.4, 0.4})
+        love.graphics.print("P" .. i, rowX + 18, rowY + 1)
+
+        if ship then
+            local valColor = isActive and {0.8, 0.8, 0.8} or {0.35, 0.35, 0.35}
+
+            -- HP
+            love.graphics.setFont(f.small)
+            love.graphics.setColor(valColor[1], valColor[2], valColor[3])
+            love.graphics.print("HP", rowX + 48, rowY + 1)
+            love.graphics.setColor(color[1], color[2], color[3], isActive and 0.9 or 0.4)
+            love.graphics.print(tostring(ship.hp) .. "/" .. Config.SHIP_HP, rowX + 70, rowY + 1)
+
+            -- Fuel
+            love.graphics.setColor(valColor[1], valColor[2], valColor[3])
+            love.graphics.print("F", rowX + 130, rowY + 1)
+            love.graphics.setColor(color[1], color[2], color[3], isActive and 0.9 or 0.4)
+            love.graphics.print(tostring(ship.fuel) .. "/" .. Config.SHIP_FUEL, rowX + 144, rowY + 1)
+
+            -- Facing + Momentum on second line
+            love.graphics.setColor(valColor[1], valColor[2], valColor[3])
+            love.graphics.print(ship.facing, rowX + 48, rowY + 18)
+
+            -- Momentum
+            local mx, my = ship.momentum.x, ship.momentum.y
+            local momStr = ""
+            if my < 0 then momStr = momStr .. "N" .. math.abs(my) end
+            if my > 0 then momStr = momStr .. "S" .. math.abs(my) end
+            if mx > 0 then momStr = momStr .. "E" .. math.abs(mx) end
+            if mx < 0 then momStr = momStr .. "W" .. math.abs(mx) end
+            if momStr == "" then momStr = "0" end
+            love.graphics.print(momStr, rowX + 100, rowY + 18)
+
+            -- HP bar (small, on the right)
+            local barX = rowX + 200
+            local barW = 80
+            local barH = 8
+            local barY = rowY + 5
+            local hpFrac = ship.hp / Config.SHIP_HP
+            love.graphics.setColor(0.15, 0.15, 0.2)
+            love.graphics.rectangle("fill", barX, barY, barW, barH, 3)
+            if hpFrac > 0 then
+                love.graphics.setColor(color[1], color[2], color[3], isActive and 0.8 or 0.4)
+                love.graphics.rectangle("fill", barX, barY, barW * hpFrac, barH, 3)
+            end
+
+            -- Fuel bar (small)
+            local barY2 = barY + 14
+            local fuelFrac = ship.fuel / Config.SHIP_FUEL
+            love.graphics.setColor(0.15, 0.15, 0.2)
+            love.graphics.rectangle("fill", barX, barY2, barW, barH, 3)
+            if fuelFrac > 0 then
+                love.graphics.setColor(0.4, 0.7, 0.4, isActive and 0.8 or 0.4)
+                love.graphics.rectangle("fill", barX, barY2, barW * fuelFrac, barH, 3)
+            end
+        else
+            love.graphics.setFont(f.cardLabel)
+            love.graphics.setColor(0.3, 0.3, 0.3)
+            love.graphics.print("No ship", rowX + 48, rowY + 8)
+        end
+
+        playerY = playerY + playerH
     end
 
-    local color = ship.color
-    local statX = x + pad + sectionPad
-    local statY = y + 30
-
-    -- HP
-    love.graphics.setFont(f.label)
-    love.graphics.setColor(0.5, 0.5, 0.5)
-    love.graphics.print("HP", statX, statY)
-    love.graphics.setFont(f.value)
-    love.graphics.setColor(color[1], color[2], color[3])
-    love.graphics.print(tostring(ship.hp) .. "/" .. Config.SHIP_HP, statX + 30, statY - 2)
-
-    -- Fuel
-    love.graphics.setFont(f.label)
-    love.graphics.setColor(0.5, 0.5, 0.5)
-    love.graphics.print("Fuel", statX + 120, statY)
-    love.graphics.setFont(f.value)
-    love.graphics.setColor(color[1], color[2], color[3])
-    love.graphics.print(tostring(ship.fuel) .. "/" .. Config.SHIP_FUEL, statX + 156, statY - 2)
-
-    -- Facing
-    statY = statY + 32
-    love.graphics.setFont(f.label)
-    love.graphics.setColor(0.5, 0.5, 0.5)
-    love.graphics.print("Facing", statX, statY)
-    love.graphics.setFont(f.value)
-    love.graphics.setColor(color[1], color[2], color[3])
-    love.graphics.print(ship.facing, statX + 56, statY - 2)
-
-    -- Momentum
-    love.graphics.setFont(f.label)
-    love.graphics.setColor(0.5, 0.5, 0.5)
-    love.graphics.print("Mom", statX + 120, statY)
-    love.graphics.setFont(f.value)
-    love.graphics.setColor(color[1], color[2], color[3])
-    local mx, my = ship.momentum.x, ship.momentum.y
-    local momStr = ""
-    if my < 0 then momStr = momStr .. "N" .. math.abs(my) end
-    if my > 0 then momStr = momStr .. "S" .. math.abs(my) end
-    if mx > 0 then momStr = momStr .. "E" .. math.abs(mx) end
-    if mx < 0 then momStr = momStr .. "W" .. math.abs(mx) end
-    if momStr == "" then momStr = "0" end
-    love.graphics.print(momStr, statX + 150, statY - 2)
-
     -- Player color bar at bottom of section
-    love.graphics.setColor(color[1], color[2], color[3], 0.3)
+    local activeColor = PLAYER_COLORS[self.activePlayer] or {0.5, 0.5, 0.5}
+    love.graphics.setColor(activeColor[1], activeColor[2], activeColor[3], 0.3)
     love.graphics.rectangle("fill", x + pad, y + h - 3, w - pad * 2, 3, 2)
 end
 

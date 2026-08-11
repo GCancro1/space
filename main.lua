@@ -55,7 +55,7 @@ local function recalcLayout()
     local w, h = love.graphics.getDimensions()
     local sidebarW = Config.SIDEBAR_WIDTH
     local boardW = w - sidebarW
-    local boardH = h
+    local boardH = h - Config.INFO_BAR_HEIGHT
 
     local tileSizeX = math.floor(boardW / Config.GRID_WIDTH)
     local tileSizeY = math.floor(boardH / Config.GRID_HEIGHT)
@@ -64,7 +64,7 @@ local function recalcLayout()
     local gridPixelW = tileSize * Config.GRID_WIDTH
     local gridPixelH = tileSize * Config.GRID_HEIGHT
     local offsetX = 0
-    local offsetY = 0
+    local offsetY = 0  -- board starts at top
 
     Config.TILE_SIZE = tileSize
     Config.SCREEN_WIDTH = w
@@ -171,7 +171,7 @@ function love.draw()
             ship:draw(Config.TILE_SIZE, Config.GRID_OFFSET_X, Config.GRID_OFFSET_Y)
         end
         particles:draw()
-        -- drawInfoBar() removed, using sidebar instead
+        drawInfoBar()
     end
 
     if effect then
@@ -190,23 +190,23 @@ function drawInfoBar()
 
     -- Info bar background
     love.graphics.setColor(Config.INFO_BAR_BG)
-    love.graphics.rectangle("fill", 0, y, Config.SCREEN_WIDTH, h)
+    love.graphics.rectangle("fill", 0, y, Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH, h)
 
     -- Glowing top border
     love.graphics.setColor(0.4, 0.6, 1.0, 0.9)
     love.graphics.setLineWidth(2)
-    love.graphics.line(0, y, Config.SCREEN_WIDTH, y)
+    love.graphics.line(0, y, Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH, y)
     love.graphics.setLineWidth(1)
     -- Glow passes
     for i = 1, 4 do
         local alpha = 0.25 / i
         local spread = i * 3
         love.graphics.setColor(0.3, 0.5, 1.0, alpha)
-        love.graphics.rectangle("fill", 0, y + spread, Config.SCREEN_WIDTH, 1)
+        love.graphics.rectangle("fill", 0, y + spread, Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH, 1)
     end
 
     if panel and ships then
-        panel:drawAll(ships, y, h, Config.SCREEN_WIDTH)
+        panel:drawAll(ships, y, h, Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH)
     end
 end
 

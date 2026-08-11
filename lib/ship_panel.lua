@@ -110,8 +110,8 @@ function ShipPanel:drawShipPanel(index, ship, x, y, w, h)
     self:drawMomentumCompass(cx, cy, radius, ship)
 
     -- Stats on the right
-    local statsX = x + radius * 2 + 45
-    local momY = cy - 50
+    local statsX = x + radius * 2 + 100
+    local momY = cy - 100
     local hpY = cy - 10
     local fuelY = cy + 26
 
@@ -132,7 +132,7 @@ function ShipPanel:drawShipPanel(index, ship, x, y, w, h)
     local momValue = #momParts > 0 and table.concat(momParts, " ") or "0"
     love.graphics.setFont(fMedium)
     love.graphics.setColor(color[1], color[2], color[3], 0.9)
-    love.graphics.print(momValue, statsX + 14, momY + 18)
+    love.graphics.print(momValue, statsX + 14, momY + 20)
 
     -- HP and Fuel bars
     local barWidth = math.min(160, w - (statsX - x) - 50)

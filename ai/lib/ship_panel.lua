@@ -1,4 +1,4 @@
-local Class = require("lib.class")
+local Class = require("ai.vendor.class")
 local Config = require("config")
 
 local ShipPanel = Class:extend()
@@ -50,7 +50,7 @@ function ShipPanel:drawAll(ships, infoBarY, infoBarHeight, screenWidth)
         local cardW = colW - pad * 2
         local cardY = infoBarY + cardPad
         local cardH = infoBarHeight - cardPad * 2
-        love.graphics.setColor(0.12, 0.12, 0.18)
+        love.graphics.setColor(0.14, 0.14, 0.22)
         roundedRect("fill", panelX, cardY, cardW, cardH, 14)
         -- Subtle border on card
         love.graphics.setColor(ship.color[1], ship.color[2], ship.color[3], 0.15)
@@ -147,8 +147,8 @@ function ShipPanel:drawCompassBase(cx, cy, radius, shipColor)
     love.graphics.setColor(shipColor[1], shipColor[2], shipColor[3], 0.08)
     love.graphics.circle("fill", cx, cy, radius + 4)
 
-    -- Background circle
-    love.graphics.setColor(0.04, 0.04, 0.08)
+    -- Background circle (brighter)
+    love.graphics.setColor(0.06, 0.06, 0.12)
     love.graphics.circle("fill", cx, cy, radius)
 
     -- Ship-color outline
@@ -157,8 +157,8 @@ function ShipPanel:drawCompassBase(cx, cy, radius, shipColor)
     love.graphics.circle("line", cx, cy, radius)
     love.graphics.setLineWidth(1)
 
-    -- Inner concentric ring at 60%
-    love.graphics.setColor(0.2, 0.2, 0.25)
+    -- Inner concentric ring at 60% (brighter)
+    love.graphics.setColor(0.25, 0.28, 0.35)
     love.graphics.circle("line", cx, cy, radius * 0.6)
 
     -- Tick marks and labels

@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "turn": 1,
+    "phase": "PLAN",
+    "currentPlayer": 1
+  },
+  "board": {
+    "width": 20,
+    "height": 20
+  },
+  "ships": [
+    {
+      "id": 1,
+      "x": 18,
+      "y": 18,
+      "facing": "SE",
+      "turretFacing": "S",
+      "hp": 5,
+      "fuel": 20,
+      "momentum": { "x": 3, "y": 3 },
+      "movement": null
+    }
+  ],
+  "asteroids": []
+}

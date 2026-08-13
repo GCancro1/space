@@ -1,4 +1,4 @@
-local Class = require("lib.class")
+local Class = require("ai.vendor.class")
 local Asteroid = Class:extend()
 local Assets = require("assets")
 local Config = require("config")
@@ -65,10 +65,13 @@ function Asteroid:drawFallback(px, py, tileSize)
     local pw = self.w * tileSize
     local ph = self.h * tileSize
     local pad = 2
+    -- Offset from first-tile center to bounding-box center
+    local cx = px + (self.w - 1) / 2 * tileSize
+    local cy = py + (self.h - 1) / 2 * tileSize
     love.graphics.setColor(0.45, 0.32, 0.2)
-    love.graphics.rectangle("fill", px - pw/2 + pad, py - ph/2 + pad, pw - pad * 2, ph - pad * 2, 4, 4)
+    love.graphics.rectangle("fill", cx - pw/2 + pad, cy - ph/2 + pad, pw - pad * 2, ph - pad * 2, 4, 4)
     love.graphics.setColor(0.3, 0.2, 0.12)
-    love.graphics.rectangle("line", px - pw/2 + pad, py - ph/2 + pad, pw - pad * 2, ph - pad * 2, 4, 4)
+    love.graphics.rectangle("line", cx - pw/2 + pad, cy - ph/2 + pad, pw - pad * 2, ph - pad * 2, 4, 4)
 end
 function Asteroid:occupies(gx, gy)
     return gx >= self.x and gx < self.x + self.w and gy >= self.y and gy < self.y + self.h

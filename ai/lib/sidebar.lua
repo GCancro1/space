@@ -50,7 +50,7 @@ end
 
 function Sidebar:new()
     local instance = setmetatable({}, {__index = self})
-    instance.suit = require("lib.suit").new()
+    instance.suit = require("ai.vendor.suit").new()
     instance.activeCard = nil
     instance.activePlayer = 1
     instance.turnNumber = 1

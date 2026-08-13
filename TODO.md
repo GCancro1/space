@@ -1,188 +1,162 @@
 # TODO — MVP Demo Priorities
 
 > Ordered by priority. P0 = must have, P1 = should have, P2 = nice to have.
-> The user writes game logic. Agents handle visuals when asked.
+> The user writes game logic in `game/` directory. Agents handle visuals when asked.
 
 ---
 
-## P0 — Core Game Loop (Must Have)
+## P0 — State-Based Game Loop (Must Have)
 
-These tasks form the minimum playable game. Nothing happens when you click without them.
+These tasks form the minimum playable game using JSON state files.
 
-### 1. Turn State Machine
-**Status:** Not started  
-**What:** Create a state machine that cycles through: `SELECT_PIECE → MOVE → SHOOT → END_TURN`  
-**Where:** New file `lib/turn.lua` or in `main.lua`  
+### 1. JSON State I/O
+**Status:** Not started
+**What:** Load/save game state as JSON files
+**Where:** New file `game/state_io.lua` + vendor `ai/vendor/json.lua` (rxi/json.lua)
 **Details:**
-- Track current phase and active player
-- `SELECT_PIECE`: wait for player to click a ship
-- `MOVE`: let player rotate body and apply thrust
-- `SHOOT`: let player rotate turret and fire
-- `END_TURN`: switch to next player, repeat
+- Vendor rxi/json.lua (~280 LOC, pure Lua, MIT) into `ai/vendor/json.lua`
+- `StateIO.load(path)` → state table
+- `StateIO.save(state, path)` → bool
+- Uses `love.filesystem.read/write` for Love2D sandbox compatibility
+- Test with 14 pre-made state files in `states/`
 
-### 2. Click to Select Ship
-**Status:** Not started  
-**What:** Click on a tile → check if a ship is there → select it  
-**Where:** `main.lua` `love.mousepressed()`  
+### 2. Game State Logic
+**Status:** Not started
+**What:** Pure functions that advance game state (state → state)
+**Where:** New file `game/game_state.lua`
 **Details:**
-- Convert mouse click to grid coords (use `board:screenToGrid()`)
-- Check if any ship occupies that tile
-- Store selected ship index
-- Draw selection highlight (yellow ring or pulsing outline)
+- `GameState.advancePhase(state, actions)` → newState
+  - PLAN: store pending actions on ships
+  - CALC: apply rotation, thrust, fuel costs
+  - MOVE: run all ticks until movement complete
+  - SHOOT: resolve shots, remove destroyed ships
+  - END_TURN: advance currentPlayer, increment turn
+- `GameState.advanceTick(state)` → newState, events
+  - MOVE phase only: all objects move 1 tile in movement.direction
+  - Returns events array for renderer: `{type="wallBounce", objectId=1, damage=1}`
+- Pure functions: no side effects, no Love2D API calls
 
-### 3. Body Rotation
-**Status:** Not started  
-**What:** Keyboard input to rotate ship body 45° per turn  
-**Where:** `main.lua` `love.keypressed()`  
+### 3. State Renderer
+**Status:** Not started
+**What:** Read game state and draw everything to screen
+**Where:** New file `game/state_renderer.lua`
 **Details:**
-- `Q` = rotate left (counter-clockwise 45°)
-- `E` = rotate right (clockwise 45°)
-- Update `ship.facing` to next direction in FACING_LIST
-- Only during MOVE phase, only for selected ship
+- `StateRenderer:draw(state)` — draw board, ships, asteroids, UI
+- `StateRenderer:update(dt)` — advance tweens and effects
+- `StateRenderer:setEvents(events)` — queue visual effects from logic
+- Compares old/new positions, starts flux tweens for movement
+- Shows phase indicator, current player, turn number
+- Ships: triangle + turret + momentum arrow + HP bar
+- Asteroids: sprites + momentum arrow
+- Effects: damage flash, bounce ripple, shot lines
 
-### 4. Thrust Application
-**Status:** Not started  
-**What:** Keyboard input to apply thrust in a direction relative to body facing  
-**Where:** `main.lua` `love.keypressed()`  
+### 4. Main Loop Integration
+**Status:** Not started
+**What:** Wire state system into Love2D callbacks
+**Where:** `main.lua` (modify existing)
 **Details:**
-- `W` = forward (add momentum in facing direction)
-- `S` = backward (add momentum opposite to facing)
-- `A` = left strafe
-- `D` = right strafe
-- Each thrust costs 1 fuel
-- Check `ship.fuel > 0` before applying
+- `love.load`: load initial state from JSON
+- `love.keypressed`: Space=advance phase, T=advance tick, S=save, L=reload, 1-8=load test state
+- `love.mousepressed`: click to select ship (for inspection)
+- `love.draw`: delegate to StateRenderer
+- `love.update`: delegate to StateRenderer:update
 
-### 5. Momentum Movement Resolution
-**Status:** Not started  
-**What:** After all inputs locked, move ships step-by-step based on momentum  
-**Where:** New function in `main.lua` or `lib/movement.lua`  
+### 5. Movement Resolution (in GameState)
+**Status:** Not started
+**What:** Step-by-step movement with wall bounce
+**Where:** Inside `game/game_state.lua` or helper module
 **Details:**
-- X movement first (1 tile at a time in momentum.x direction)
-- Then Y movement (1 tile at a time in momentum.y direction)
-- After all movement: check wall collisions
-- Update `ship.x`, `ship.y`
+- Momentum = `{x, y}`, persists across turns
+- Movement direction = compass direction (N/NE/E/SE/S/SW/W/NW)
+- Steps: X first, then Y. 1 tile per step.
+- Wall bounce: flip direction, subtract 1 from momentum, damage, continue
+- Ship collision: both take damage, momentum exchange
+- Events emitted for each step, bounce, and collision
 
-### 6. Wall Collision + Bounce
-**Status:** Not started  
-**What:** When ship hits grid boundary, apply damage and bounce  
-**Where:** Inside movement resolution  
+### 6. Ship Selection + Highlight
+**Status:** Not started
+**What:** Click ship to select, show visual highlight
+**Where:** `main.lua` input + `game/state_renderer.lua` draw
 **Details:**
-- If ship goes off grid → 1 HP damage
-- Flip momentum component perpendicular to wall
-- Subtract 1 from flipped component
-- Continue remaining movement in new direction
-- If HP reaches 0 → ship destroyed
-
-### 7. Turn Switching (Hot Seat)
-**Status:** Not started  
-**What:** After END_TURN, pass to next player  
-**Where:** `main.lua`  
-**Details:**
-- Track `currentPlayer` index (1-4)
-- After END_TURN: `currentPlayer = currentPlayer % 4 + 1`
-- Reset phase to SELECT_PIECE
-- Show which player's turn it is
+- Click tile → find ship at that position → select it
+- Draw yellow pulsing ring around selected ship
+- Show ship info in sidebar (HP, fuel, facing, momentum)
+- Tab key cycles through ships
 
 ---
 
 ## P1 — Combat & Economy (Should Have)
 
-These make the game actually strategic.
-
-### 8. Turret Rotation
-**Status:** Not started  
-**What:** Independent turret rotation during SHOOT phase  
-**Where:** `main.lua` `love.keypressed()`  
+### 7. Turret Rotation
+**Status:** Not started
+**What:** Independent turret rotation during PLAN phase
+**Where:** `game/game_state.lua` (CALC phase)
 **Details:**
-- Arrow keys or custom keys during SHOOT phase
-- Rotates `ship.turretFacing` independently
-- Unlimited rotation (not 45° steps)
+- Action file specifies `turretRotation: "CW"/"CCW"` or null
+- Applied during CALC phase, independent of body rotation
+- No fuel cost for turret rotation
 
-### 9. Shot Firing
-**Status:** Not started  
-**What:** Fire a shot from turret in turret facing direction  
-**Where:** `main.lua` or new `lib/combat.lua`  
+### 8. Shot Firing
+**Status:** Not started
+**What:** Fire shot from turret in turret facing direction
+**Where:** `game/game_state.lua` (SHOOT phase)
 **Details:**
-- Check turret range (5 tiles)
-- Trace line from turret to target tile
-- If ship is in the line → 1 damage
-- Costs 1 fuel per shot
+- Action file specifies `shot: { power: 1-4 }` or null
+- Check range (5 tiles) in turret facing direction
+- Line-of-sight check (no obstacles blocking)
+- Damage = shot power
+- Costs `FUEL_COST_SHOT` per power unit
 
-### 10. Fuel Cost Deduction
-**Status:** Not started  
-**What:** Deduct fuel for each action  
-**Where:** After each action in MOVE/SHOOT phases  
+### 9. Ship Destruction
+**Status:** Not started
+**What:** Remove ship when HP reaches 0
+**Where:** `game/game_state.lua`
 **Details:**
-- Thrust = 1 fuel per power unit
-- Shot = 1 fuel per shot
-- Check fuel before allowing action
-- Visual: update fuel bar in ship_panel
-
-### 11. Ship Destruction
-**Status:** Not started  
-**What:** Remove ship when HP reaches 0  
-**Where:** Movement/combat resolution  
-**Details:**
-- When HP ≤ 0: remove from ships table
-- Play explosion effect
-- Check win condition
+- Check HP after each damage event
+- When HP ≤ 0: remove from ships array
+- Emit destruction event for renderer (explosion effect)
+- Check win condition (last ship standing)
 
 ---
 
-## P2 — Visual Feedback (Nice to Have)
+## P2 — Visual Polish (Nice to Have)
 
-These make the game feel polished.
-
-### 12. Selection Highlight
-**Status:** Not started  
-**What:** Visual indicator on selected ship  
-**Where:** `lib/ship.lua` `draw()`  
+### 10. Momentum Arrow on Board
+**Status:** Not started
+**What:** Show momentum direction and magnitude on each ship
+**Where:** `game/state_renderer.lua`
 **Details:**
-- Yellow pulsing ring around selected ship
-- Or bright outline that fades in/out
+- Dotted line from ship center in momentum direction
+- Length proportional to |momentum|
+- Color matches player color
+- Arrow tip at end
 
-### 13. Movement Range Indicator
-**Status:** Not started  
-**What:** Show where ship can move  
-**Where:** `main.lua` `love.draw()`  
+### 11. Movement Direction Indicator
+**Status:** Not started
+**What:** Show active movement direction during MOVE phase
+**Where:** `game/state_renderer.lua`
 **Details:**
-- Highlight tiles the ship can reach based on current momentum
-- Show predicted path
+- Bright solid arrow in movement.direction during MOVE phase
+- Steps remaining counter near ship
+- Fades after movement completes
 
-### 14. Turret Range Indicator
-**Status:** Not started  
-**What:** Show turret range from selected ship  
-**Where:** `main.lua` `love.draw()`  
+### 12. Damage Flash Effect
+**Status:** Not started
+**What:** Visual feedback when ship takes damage
+**Where:** `game/state_renderer.lua`
 **Details:**
-- Highlight tiles within 5-tile range
-- Show cone or circle in turret facing direction
+- Red flash overlay on damaged ship (0.2s duration)
+- Screen shake on wall bounce
+- Damage number floating up from ship
 
-### 15. Shot Animation
-**Status:** Not started  
-**What:** Visual laser line when firing  
-**Where:** New `lib/shot_effect.lua` or in `main.lua`  
+### 13. Shot Animation
+**Status:** Not started
+**What:** Visual laser line when firing
+**Where:** `game/state_renderer.lua`
 **Details:**
 - Draw line from turret to target
-- Flash effect
+- Bright flash at impact point
 - Use explosion particles on hit
-
-### 16. Turn Phase Display
-**Status:** Not started  
-**What:** Show current phase and active player in info bar  
-**Where:** `lib/ship_panel.lua`  
-**Details:**
-- Display "Phase: MOVE" or "Phase: SHOOT"
-- Highlight active player's panel
-- Grey out other players' panels
-
-### 17. Momentum Trail
-**Status:** Not started  
-**What:** Show ship's momentum as a dotted line or arrow  
-**Where:** `lib/ship.lua` `draw()`  
-**Details:**
-- Draw dotted line in momentum direction
-- Length proportional to momentum magnitude
-- Color matches player color
 
 ---
 
@@ -205,18 +179,16 @@ These make the game feel polished.
 main.lua
 ├── config.lua
 ├── assets.lua
-├── lib/board.lua
-├── lib/ship.lua
-├── lib/asteroid.lua
-├── lib/ship_panel.lua
-├── lib/particles.lua
-├── lib/movement_animator.lua
-├── lib/flux.lua
-├── lib/anim8.lua
-└── lib/moonshine/
-
-New files needed for MVP:
-├── lib/turn.lua        (turn state machine)
-├── lib/combat.lua      (shot firing + damage)
-└── lib/movement.lua    (momentum resolution + wall bounce)
+├── ai/lib/board.lua
+├── ai/lib/ship.lua
+├── ai/lib/asteroid.lua
+├── ai/lib/ship_panel.lua
+├── ai/lib/particles.lua
+├── ai/lib/movement_animator.lua
+├── ai/vendor/flux.lua
+├── ai/vendor/json.lua        (NEW - rxi/json.lua)
+├── ai/vendor/moonshine/
+├── game/game_state.lua       (NEW - pure logic)
+├── game/state_io.lua         (NEW - JSON load/save)
+└── game/state_renderer.lua   (NEW - reads state, draws)
 ```

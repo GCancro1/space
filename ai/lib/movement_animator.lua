@@ -1,4 +1,4 @@
-local Class = require("lib.class")
+local Class = require("ai.vendor.class")
 local Config = require("config")
 local MovementAnimator = Class:extend()
 

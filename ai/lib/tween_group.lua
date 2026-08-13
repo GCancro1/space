@@ -1,4 +1,4 @@
-local Class = require("lib.class")
+local Class = require("ai.vendor.class")
 local TweenGroup = Class:extend()
 
 function TweenGroup:init(fluxInstance)

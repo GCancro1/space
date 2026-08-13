@@ -39,7 +39,7 @@ function Particles:createExplosion(x, y, color)
     ps:setDirection(0)
     ps:setSpread(math.pi * 2)
     ps:setSpeed(60, 150)
-    ps:setParticleSize(8)
+    ps:setSize(8, 16)
     ps:setSizeVariation(1)
     ps:setColors(
         1, 1, 0.8, 1,

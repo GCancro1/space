@@ -92,15 +92,17 @@ love.mousepressed()  →  handle clicks → update game state
 
 ## Architecture
 
-| Class       | Owns                          | Key methods                               |
-| ----------- | ----------------------------- | ----------------------------------------- |
-| **Board**       | 2D grid array, tile size      | `draw()`, `getTile(x,y)`, `screenToGrid(mx,my)` |
-| **Ship**        | Position, HP, list of turrets | `draw()`, `moveTo(tx,ty)`, `takeDamage(n)`      |
-| **Turret**      | Range, damage, parent ship    | `draw()`, `canFire(target)`, `fire(target)`     |
-| **TurnManager** | Current phase, current player | `nextPhase()`, `isPhase(name)`, `endTurn()`     |
+| Class       | Owns                          | Key methods                               | Status |
+| ----------- | ----------------------------- | ----------------------------------------- | ------ |
+| **Board**       | 2D grid, tile size            | `draw()`, `screenToGrid(mx,my)`, `inBounds(x,y)` | ✅ |
+| **Ship**        | Position, facing, momentum    | `draw()`, `moveTo()`, `rotateTo()`              | ✅ |
+| **Asteroid**    | Position, size, sprite        | `draw()`, `occupies(gx,gy)`                     | ✅ |
+| **ShipPanel**   | Bottom info bar               | `drawAll(ships, y, h, width)`                   | ✅ |
+| **Sidebar**     | Right sidebar UI              | `update()`, `draw()`, `getSelectedAction()`     | ✅ |
+| **TurnManager** | Current phase, current player | `nextPhase()`, `isPhase(name)`, `endTurn()`     | 🔲 |
 
 ## Turn Phases
 
 ```
-SELECT_PIECE → MOVE_PIECE → SELECT_TARGET → FIRE → END_TURN
+PLAN → CALC → MOVE → COLLIDE → END_TURN
 ```

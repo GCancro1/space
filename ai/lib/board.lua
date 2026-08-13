@@ -1,4 +1,4 @@
-local Class = require("lib.class")
+local Class = require("ai.vendor.class")
 local Board = Class:extend()
 
 function Board:init(config)
@@ -13,14 +13,14 @@ end
 function Board:draw()
     local ts = self.tileSize
 
-    -- Grid background
-    love.graphics.setColor(self.config.GRID_BG_COLOR)
+    -- Grid background (semi-transparent so space bg shows through)
+    love.graphics.setColor(0.02, 0.02, 0.06, 0.55)
     love.graphics.rectangle("fill",
         self.offsetX, self.offsetY,
         self.width * ts, self.height * ts)
 
-    -- Grid lines
-    love.graphics.setColor(self.config.GRID_LINE_COLOR)
+    -- Grid lines (brighter, semi-transparent)
+    love.graphics.setColor(0.2, 0.25, 0.35, 0.5)
     for x = 0, self.width do
         love.graphics.line(
             self.offsetX + x * ts, self.offsetY,
@@ -32,8 +32,8 @@ function Board:draw()
             self.offsetX + self.width * ts, self.offsetY + y * ts)
     end
 
-    -- Border
-    love.graphics.setColor(0.4, 0.4, 0.4)
+    -- Border (brighter)
+    love.graphics.setColor(0.5, 0.55, 0.65)
     love.graphics.rectangle("line",
         self.offsetX, self.offsetY,
         self.width * ts, self.height * ts)

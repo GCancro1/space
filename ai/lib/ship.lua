@@ -1,6 +1,15 @@
-local Class = require("lib.class")
+local Class = require("ai.vendor.class")
 local Config = require("config")
 local Ship = Class:extend()
+
+local fontCache = {}
+local function getCachedFont(size)
+    local key = math.floor(size)
+    if not fontCache[key] then
+        fontCache[key] = love.graphics.newFont(key)
+    end
+    return fontCache[key]
+end
 
 local FACING_DEGREES = {
     N  = 0,
@@ -118,7 +127,7 @@ function Ship:draw(tileSize, offsetX, offsetY)
 
     -- 7. Player number label
     love.graphics.setColor(0, 0, 0, 0.8)
-    love.graphics.setFont(love.graphics.newFont(math.max(10, tileSize * 0.18)))
+    love.graphics.setFont(getCachedFont(math.max(10, tileSize * 0.18)))
     love.graphics.printf(tostring(self.shipIndex), cx - r, cy - r * 0.4, r * 2, "center")
 end
 

@@ -1,0 +1,9 @@
+{
+  "playerId": 1,
+  "turn": 1,
+  "shipId": 1,
+  "rotation": "CW",
+  "thrust": { "dir": "F", "power": 2 },
+  "turretRotation": "CW",
+  "shot": { "power": 3 }
+}

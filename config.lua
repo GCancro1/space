@@ -38,15 +38,19 @@ return {
     ROTATE_DURATION = 0.25,       -- seconds for body rotation (45 deg)
     TURRET_ROTATE_DURATION = 0.2, -- seconds for turret rotation
 
+    -- Background
+    ENABLE_BACKGROUND = false,
+    BACKGROUND_COLOR = {1, 1, 1},  -- used when ENABLE_BACKGROUND is false
+
     -- Post-processing
-    ENABLE_VIGNETTE = true,
+    ENABLE_VIGNETTE = false,
     VIGNETTE_SOFTNESS = 0.4,
 
     -- Colors
-    GRID_LINE_COLOR = {0.2, 0.2, 0.2},
-    GRID_BG_COLOR = {0.05, 0.05, 0.1},
-    INFO_BAR_BG = {0.1, 0.1, 0.15},
-    INFO_BAR_BORDER = {0.3, 0.3, 0.3},
+    GRID_LINE_COLOR = {0.18, 0.22, 0.3},
+    GRID_BG_COLOR = {0.03, 0.03, 0.08},
+    INFO_BAR_BG = {0.1, 0.12, 0.18},
+    INFO_BAR_BORDER = {0.4, 0.45, 0.5},
     SHIP_COLOR = {0.2, 0.6, 1.0},
     TURRET_COLOR = {1.0, 0.8, 0.2},
     TEXT_COLOR = {0.8, 0.8, 0.8},
@@ -67,9 +71,9 @@ return {
 
     -- Sidebar
     SIDEBAR_WIDTH = 400,
-    SIDEBAR_BG = {0.08, 0.08, 0.12},
+    SIDEBAR_BG = {0.1, 0.1, 0.15},
     SIDEBAR_BORDER = {0.25, 0.25, 0.3},
-    SIDEBAR_SECTION_BG = {0.12, 0.12, 0.16},
+    SIDEBAR_SECTION_BG = {0.15, 0.15, 0.2},
     SIDEBAR_SECTION_BORDER = {0.2, 0.2, 0.25},
     SIDEBAR_CARD_RADIUS = 8,
     -- Card colors (action types)

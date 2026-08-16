@@ -47,6 +47,7 @@ No AI, no UI polish — just the core loop working.
 | Shot momentum       | Affects TARGET's momentum (push/pull)               | Locked  |
 | Fuel model          | 1 fuel per power unit (thrust + shots)              | Locked  |
 | Zero momentum       | Ship stops completely                               | Locked  |
+| Collision restitution | COR in meta.cor: 0 (stick) / 0.5 / 1 (elastic, default) | Locked  |
 | Turn order          | Simultaneous (all players plan, then all execute)   | Locked  |
 | Position system     | Hybrid (tile coords, rendered centered)             | Locked  |
 | Player planning     | Hidden card selection (TBD)                         | Draft   |
@@ -149,6 +150,35 @@ Ship bounces back 2 tiles with momentum (-3, 2)
 
 ---
 
+## Collision Resolution (COR)
+
+COR (Coefficient of Restitution) is a game setting stored in `state.meta.cor`. Values: `0` (stick) / `0.5` / `1` (elastic, default). Clamped to `[0, 1]`. Read via `Collision.getCor(state)`.
+
+**COR = 1 (elastic, default)** — original behavior:
+- Wall: flip perpendicular component + subtract 1 (4 → -3)
+- Ship-ship: opposing vectors swap / head-on reverse, complementary average, subtract 1 from each component, 1 damage
+- Head-on momentum (4,0) vs (-4,0) → (-3,0) / (3,0)
+
+**COR = 0 (stick):**
+- Wall: perpendicular component zeroes — ship stops at wall, still takes 1 damage
+- Ship-ship: both take the rounded average per axis → head-on (4,0) vs (-4,0) → (0,0) / (0,0) — objects lock together and travel at the shared velocity
+
+**COR = 0.5 (between):**
+- Wall: flip, scale magnitude ×0.5 (rounded), subtract 1, floor at 0 → momentum 4 → -1 (weak bounce); magnitude ≤2 dies out (sticks)
+- Ship-ship head-on: interpolated exchange `a' = round(0.75·b + 0.25·a)`, `b' = round(0.75·a + 0.25·b)`, then −1 friction → (4,0) vs (-4,0) → (-1,0) / (1,0)
+
+**Damage:** always 1 on wall hits regardless of COR (game rule unchanged). Ship collisions also deal 1 damage each (callers may pass 0 for e.g. asteroid-asteroid).
+
+**Implementation:** `game/collision.lua` (pure Lua, no `love.*`):
+- `resolveWallBounce(obj, axis, cor, events)`
+- `resolveObjectCollision(a, b, cor, events, damage)`
+- `resolveAxis(a1, b1, cor)`
+- `getCor(state)` — `resolveShipCollision` is an alias
+
+Works for ships AND asteroids (shared structure). Integration into game_state.lua is pending.
+
+---
+
 ## Momentum System (Core Mechanic)
 
 ### How it works
@@ -234,7 +264,7 @@ The game is built around JSON-serialized state files and action files. State is 
 
 ```json
 {
-  "meta": { "turn": 1, "phase": "PLAN", "currentPlayer": 1 },
+  "meta": { "turn": 1, "phase": "PLAN", "currentPlayer": 1, "cor": 1 },
   "board": { "width": 20, "height": 20 },
   "ships": [
     {
@@ -258,6 +288,7 @@ The game is built around JSON-serialized state files and action files. State is 
 
 **Key design decisions:**
 - `movement` = `{ "direction": "NE", "stepsRemaining": 3 }` or `null` when not moving
+- `cor` in `meta` is optional, defaults to 1 (elastic)
 - Movement direction is INDEPENDENT of body/turret facing
 - Both ships and asteroids have the same structure
 - No hardcoded counts — arrays can be any length
@@ -301,9 +332,9 @@ PLAN → CALC → MOVE → SHOOT → END_TURN
 
 Events bridge logic and rendering:
 ```lua
-{ type = "wallBounce", objectId = 1, damage = 1 }
+{ type = "wallBounce", objectId = 1, damage = 1, cor = 1 }
 { type = "movementStep", from = {x=5,y=10}, to = {x=6,y=10} }
-{ type = "shipCollision", a = 1, b = 2, damage = 1 }
+{ type = "shipCollision", a = 1, b = 2, damage = 1, cor = 1 }
 ```
 
 ### Key Controls
@@ -342,6 +373,7 @@ space/
 │       └── moonshine/        -- Post-processing shaders
 │
 ├── game/                 -- Game logic (user writes this)
+│   ├── collision.lua     -- Pure collision resolution (COR)
 │   ├── game_state.lua    -- Pure logic: state → state
 │   ├── state_io.lua      -- JSON load/save
 │   └── state_renderer.lua -- Reads state, draws everything

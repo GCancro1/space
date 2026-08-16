@@ -1,75 +1,22 @@
----@type love
-love = nil
-
 local Config = require("config")
-
--- ═══════════════════════════════════════════════════════════════════
--- AI-GENERATED RENDERING MODULES
--- ═══════════════════════════════════════════════════════════════════
 local Board = require("ai.lib.board")
-local Ship = require("ai.lib.ship")
-local ShipPanel = require("ai.lib.ship_panel")
-local Asteroid = require("ai.lib.asteroid")
 local Assets = require("assets")
-local Particles = require("ai.lib.particles")
-local flux = require("ai.vendor.flux")
-local MovementAnimator = require("ai.lib.movement_animator")
-local Sidebar = require("ai.lib.sidebar")
 
-local moonshine_ok, moonshine
-if Config.ENABLE_VIGNETTE then
-    moonshine_ok, moonshine = pcall(require, "ai.vendor.moonshine")
-end
-
--- ═══════════════════════════════════════════════════════════════════
--- GAME LOGIC MODULES (add your imports here)
--- ═══════════════════════════════════════════════════════════════════
--- local GameState = require("game.state")
+local GameState = require("game.game_state")
+local StateIO = require("game.state_io")
+local StateRenderer = require("game.state_renderer")
 
 -- ═══════════════════════════════════════════════════════════════════
 -- STATE
 -- ═══════════════════════════════════════════════════════════════════
-local board
-local ships
-local asteroids
-local panel
-local particles
-local effect
-local sidebar
-local movementAnimator
-
-local PLAYER_COLORS = {
-    {0.2, 0.6, 1.0},   -- blue
-    {1.0, 0.3, 0.3},   -- red
-    {0.3, 1.0, 0.4},   -- green
-    {1.0, 0.4, 0.7},   -- pink
-}
+local state = nil
+local renderer = nil
+local board = nil
+local statePath = nil
 
 -- ═══════════════════════════════════════════════════════════════════
--- AI-GENERATED HELPERS
+-- HELPERS
 -- ═══════════════════════════════════════════════════════════════════
-local function facingTowardCenter(x, y)
-    local cx = Config.GRID_WIDTH / 2
-    local cy = Config.GRID_HEIGHT / 2
-    local dx = cx - x
-    local dy = cy - y
-
-    if math.abs(dx) < 2 and math.abs(dy) < 2 then
-        return "S"
-    end
-
-    local angle = math.atan2(dy, dx)
-    if angle > -math.pi / 4 and angle <= math.pi / 4 then
-        return "E"
-    elseif angle > math.pi / 4 and angle <= 3 * math.pi / 4 then
-        return "S"
-    elseif angle > -3 * math.pi / 4 and angle <= -math.pi / 4 then
-        return "N"
-    else
-        return "W"
-    end
-end
-
 local function recalcLayout()
     local w, h = love.graphics.getDimensions()
     local sidebarW = Config.SIDEBAR_WIDTH
@@ -97,177 +44,136 @@ local function recalcLayout()
     board = Board:new(Config)
 end
 
--- ═══════════════════════════════════════════════════════════════════
--- GAME LOGIC HELPERS (add your helpers here)
--- ═══════════════════════════════════════════════════════════════════
-local function spawnShips()
-    local spawn = {
-        { 1,  1},
-        {18, 18},
-        {18,  1},
-        { 1, 18},
-    }
-
-    ships = {}
-    for i, pos in ipairs(spawn) do
-        local facing = facingTowardCenter(pos[1], pos[2])
-        ships[i] = Ship:new(pos[1], pos[2], facing, PLAYER_COLORS[i], i)
-        ships[i]:setFlux(flux)
+local function loadState(path)
+    local ok, result = pcall(StateIO.load, path)
+    if not ok then
+        print("Failed to load state: " .. tostring(result))
+        return nil
+    elseif not result then
+        print("Failed to load state: " .. tostring(path))
+        return nil
     end
-
-    return ships
+    return result
 end
 
-local function spawnAsteroids()
-    asteroids = {
-        Asteroid:new(9,  9, 1, 1),
-        Asteroid:new(11, 8, 2, 1),
-        Asteroid:new(8,  11, 2, 2),
-        Asteroid:new(10, 10, 3, 1),
-        Asteroid:new(13, 11, 3, 3),
-    }
-
-    for _, a in ipairs(asteroids) do
-        a:setFlux(flux)
+-- Load the single action bundle for a turn ("actions/turnN_plan.json").
+-- Returns an empty array on any failure (missing file, bad JSON) and prints
+-- a notice, so gameplay can proceed with no actions.
+local function loadActionsForTurn(turn)
+    local path = "actions/turn" .. tostring(turn) .. "_plan.json"
+    local ok, result = pcall(StateIO.load, path)
+    if not ok or not result then
+        print("no action bundle for turn " .. tostring(turn) .. ": " .. tostring(result or path) .. " — proceeding with empty actions")
+        return {}
     end
+    return result
+end
 
-    return asteroids
+-- Next sequence number for the step-file chain: 1 + max numeric prefix
+-- across states/play/*. pcall-guarded: a missing dir yields 0 → seq starts 0.
+local function nextChainSeq()
+    local seq = 0
+    local ok, items = pcall(love.filesystem.getDirectoryItems, "states/play")
+    if ok and items then
+        for _, name in ipairs(items) do
+            local n = tonumber(string.match(name, "^(%d+)"))
+            if n and n > seq then
+                seq = n
+            end
+        end
+    end
+    return seq + 1
 end
 
 -- ═══════════════════════════════════════════════════════════════════
 -- LOVE CALLBACKS
 -- ═══════════════════════════════════════════════════════════════════
-function love.load()
+function love.load(args)
     love.window.setMode(0, 0, { fullscreen = true })
     Assets.load()
+    -- Fixed 24px font; every love.graphics.print uses this font
+    Config.FONT_SIZE = 24
+    love.graphics.setFont(love.graphics.newFont(Config.FONT_SIZE))
     recalcLayout()
-    particles = Particles:new()
-    movementAnimator = MovementAnimator:new(flux)
+    renderer = StateRenderer:new()
 
-    if moonshine_ok and Config.ENABLE_VIGNETTE then
-        effect = moonshine(moonshine.effects.vignette)
-        effect.vignette.softness = Config.VIGNETTE_SOFTNESS
+    statePath = args[1] or "states/new_game.json"
+    state = loadState(statePath)
+    if not state then
+        state = loadState("states/new_game.json")
     end
-
-    -- ═══════════════════════════════════════════════════════════════
-    -- GAME LOGIC INITIALIZATION (add your code here)
-    -- ═══════════════════════════════════════════════════════════════
-    ships = spawnShips()
-    asteroids = spawnAsteroids()
-
-    love.graphics.setBackgroundColor(Config.BACKGROUND_COLOR)
-    panel = ShipPanel:new()
-    sidebar = Sidebar:new()
 end
 
 function love.update(dt)
-    flux.update(dt)
-    if movementAnimator then movementAnimator:update(dt) end
-    particles:update(dt)
+    renderer:update(dt)
+end
 
-    -- ═══════════════════════════════════════════════════════════════
-    -- GAME LOGIC UPDATE (add your code here)
-    -- ═══════════════════════════════════════════════════════════════
-
-    if sidebar then sidebar:update(dt, ships, 1, 1) end
+function love.draw()
+    renderer:draw(state)
 end
 
 function love.resize(w, h)
     recalcLayout()
-    if effect then
-        effect:resize(w, h)
-    end
-end
-
-function love.draw()
-    local drawScene = function()
-        -- Draw space background (tileable)
-        if Config.ENABLE_BACKGROUND then
-            local bgW = Assets.background:getWidth()
-            local bgH = Assets.background:getHeight()
-            love.graphics.setColor(1, 1, 1)
-            for x = 0, Config.SCREEN_WIDTH, bgW do
-                for y = 0, Config.SCREEN_HEIGHT, bgH do
-                    love.graphics.draw(Assets.background, x, y)
-                end
-            end
-        end
-
-        board:draw()
-        for _, asteroid in ipairs(asteroids) do
-            asteroid:draw(Config.TILE_SIZE, Config.GRID_OFFSET_X, Config.GRID_OFFSET_Y)
-        end
-        for _, ship in ipairs(ships) do
-            ship:draw(Config.TILE_SIZE, Config.GRID_OFFSET_X, Config.GRID_OFFSET_Y)
-        end
-        particles:draw()
-        drawInfoBar()
-    end
-
-    if effect then
-        effect(drawScene)
-    else
-        drawScene()
-    end
-
-    if sidebar then sidebar:draw() end
-end
-
-function drawInfoBar()
-    local y = Config.INFO_BAR_Y
-    local h = Config.INFO_BAR_HEIGHT
-
-    love.graphics.setColor(Config.INFO_BAR_BG)
-    love.graphics.rectangle("fill", 0, y, Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH, h)
-
-    love.graphics.setColor(0.5, 0.7, 1.0, 0.95)
-    love.graphics.setLineWidth(2)
-    love.graphics.line(0, y, Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH, y)
-    love.graphics.setLineWidth(1)
-    for i = 1, 5 do
-        local alpha = 0.35 / i
-        local spread = i * 3
-        love.graphics.setColor(0.4, 0.6, 1.0, alpha)
-        love.graphics.rectangle("fill", 0, y + spread, Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH, 1)
-    end
-
-    if panel and ships then
-        panel:drawAll(ships, y, h, Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH)
-    end
-end
-
-function love.mousepressed(mx, my, button)
-    if button == 1 then
-        if mx >= Config.SCREEN_WIDTH - Config.SIDEBAR_WIDTH then
-            return
-        end
-
-        -- ═══════════════════════════════════════════════════════════
-        -- GAME LOGIC INPUT (add your code here)
-        -- ═══════════════════════════════════════════════════════════
-        local gx, gy = board:screenToGrid(mx, my)
-        if board:inBounds(gx, gy) then
-            -- GameState.handleClick(gx, gy)
-        end
-    end
 end
 
 function love.keypressed(key)
     if key == "escape" then
         love.event.quit()
-    end
-
-    -- ═══════════════════════════════════════════════════════════════
-    -- GAME LOGIC KEYBOARD (add your code here)
-    -- ═══════════════════════════════════════════════════════════════
-
-    if sidebar and sidebar.suit then
-        sidebar.suit:keypressed(key)
+    elseif key == "space" then
+        if state then
+            local oldPhase = state.meta.phase
+            local actions = {}
+            if oldPhase == "PLAN" then
+                actions = loadActionsForTurn(state.meta.turn)
+            end
+            state = GameState.advancePhase(state, actions)
+            local savePath = "states/play/" .. string.format("%03d", nextChainSeq()) .. "_" .. state.meta.phase .. ".json"
+            local ok, err = StateIO.saveFs(state, savePath)
+            if ok then
+                print("PHASE " .. oldPhase .. " -> " .. state.meta.phase .. "  saved: " .. savePath)
+            else
+                print("PHASE " .. oldPhase .. " -> " .. state.meta.phase .. "  save failed: " .. tostring(err))
+            end
+        end
+    elseif key == "t" then
+        if state then
+            local newState, events = GameState.advanceTick(state)
+            state = newState
+            if events and #events > 0 then
+                renderer:setEvents(events)
+            end
+        end
+    elseif key == "l" then
+        state = loadState(statePath)
+        if not state then
+            state = loadState("states/new_game.json")
+        end
+    elseif key == "s" then
+        if state then
+            -- Plain-io save: lands in the repo (CWD-relative), not the LÖVE save dir
+            local ok, result = pcall(StateIO.saveFs, state, statePath)
+            if ok and result ~= false then
+                print("saved: " .. tostring(statePath))
+            else
+                print("save failed: " .. tostring(result))
+            end
+        end
     end
 end
 
-function love.textinput(t)
-    if sidebar and sidebar.suit then
-        sidebar.suit:textinput(t)
+function love.mousepressed(mx, my, button)
+    -- GAME LOGIC INPUT (other workers)
+    if button ~= 1 or not board or not state then return end
+    local gx, gy = board:screenToGrid(mx, my)
+    if not board:inBounds(gx, gy) then
+        renderer:selectShip(nil)
+        return
     end
+    for _, ship in ipairs(state.ships or {}) do
+        if ship.x == gx and ship.y == gy then
+            renderer:selectShip(ship.id)
+            return
+        end
+    end
+    renderer:selectShip(nil)
 end

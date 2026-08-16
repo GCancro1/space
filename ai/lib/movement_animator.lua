@@ -16,7 +16,14 @@ function MovementAnimator:startMovement(objects, tileSize, offsetX, offsetY, col
     self.tileSize = tileSize
     self.offsetX = offsetX
     self.offsetY = offsetY
-    self.collisionFn = collisionFn
+    -- Bounds guard: never let a tweened position leave the board. Callers that
+    -- supply their own collisionFn (e.g. for other ship/asteroid blocking) can
+    -- chain it; when none is given, tweening stops at the board edge instead of
+    -- walking obj.x/obj.y past Config.GRID_WIDTH/GRID_HEIGHT.
+    local function defaultBounds(x, y)
+        return x >= 0 and x < Config.GRID_WIDTH and y >= 0 and y < Config.GRID_HEIGHT
+    end
+    self.collisionFn = collisionFn or defaultBounds
     self.objects = {}
     self.activeCount = 0
 

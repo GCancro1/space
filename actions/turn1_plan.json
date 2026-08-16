@@ -1,0 +1,38 @@
+[
+  {
+    "playerId": 1,
+    "turn": 1,
+    "shipId": 1,
+    "rotation": "CW",
+    "thrust": { "dir": "F", "power": 2 },
+    "turretRotation": null,
+    "shot": null
+  },
+  {
+    "playerId": 2,
+    "turn": 1,
+    "shipId": 2,
+    "rotation": null,
+    "thrust": { "dir": "F", "power": 3 },
+    "turretRotation": "CW",
+    "shot": null
+  },
+  {
+    "playerId": 3,
+    "turn": 1,
+    "shipId": 3,
+    "rotation": "CCW",
+    "thrust": { "dir": "R", "power": 1 },
+    "turretRotation": null,
+    "shot": null
+  },
+  {
+    "playerId": 4,
+    "turn": 1,
+    "shipId": 4,
+    "rotation": null,
+    "thrust": null,
+    "turretRotation": "CW",
+    "shot": { "power": 2 }
+  }
+]

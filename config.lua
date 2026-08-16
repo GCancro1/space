@@ -4,9 +4,11 @@ return {
     GRID_HEIGHT = 20,
 
     -- UI
-    INFO_BAR_HEIGHT = 280,  -- pixels, bottom bar
+    INFO_BAR_HEIGHT = 250,  -- bottom bar height: 10 + (fh+28) + 14 + (fh*6+20) + 10 at FONT_SIZE 24
+    FONT_SIZE = nil,        -- set in love.load: fixed 24px font
 
     -- Ship
+    PLAYERS = 4,              -- player count; END_TURN wraps currentPlayer past this
     SHIP_HP = 5,
     SHIP_FUEL = 20,
 

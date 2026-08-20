@@ -33,10 +33,56 @@ local function fitText(font, maxW, ...)
     return variants[#variants]
 end
 
+-- Clamp a single log line to a width, truncating with an ellipsis when it
+-- overflows. fitText only picks between pre-built variants, so arbitrary
+-- event-log text (formatted in game_state.lua) needs its own width clamp.
+-- Event-log text can contain multibyte UTF-8 (the degree sign in plan/calc
+-- labels like "body CW (45°)"), so shortening must only cut at full character
+-- boundaries: chopping one byte off a string ending in "°" leaves a dangling
+-- lead byte (0xC2) that makes font:getWidth throw "UTF-8 decoding error".
+-- The project runs lua5.1, which has no utf8 stdlib, so the last complete
+-- character is found by scanning backwards while the current byte is a
+-- continuation byte (0x80-0xBF); the first byte that is NOT a continuation
+-- byte is that character's lead byte, and we cut BEFORE it. ASCII bytes
+-- (< 0x80) stop the scan immediately. The ellipsis is never split either,
+-- since it is appended whole (and is itself a complete 3-byte sequence).
+-- @param font table - LÖVE font
+-- @param maxW number - maximum pixel width
+-- @param text string - the log line
+-- @return string - text or a truncation ending in "…"
+local function clampLogLine(font, maxW, text)
+    if font:getWidth(text) <= maxW then
+        return text
+    end
+    local ell = "…"
+    local ellW = font:getWidth(ell)
+    local cut = #text
+    while cut > 0 do
+        -- Back `cut` up to the byte just before the last complete character.
+        local b
+        while cut > 0 do
+            b = string.byte(text, cut)
+            cut = cut - 1
+            if b < 0x80 or b >= 0xC0 then
+                break
+            end
+        end
+        if cut == 0 then
+            return ell
+        end
+        if font:getWidth(text:sub(1, cut)) <= maxW - ellW then
+            return text:sub(1, cut) .. ell
+        end
+    end
+    return ell
+end
+
 function StateRenderer:new()
     local self = setmetatable({
         board = nil, -- created lazily on first draw
         selectedShipId = nil,
+        scrollOffset = 0,     -- lines scrolled down from top (0 = at top)
+        lastLogCount = 0,     -- previous log count for auto-scroll detection
     }, StateRenderer)
     return self
 end
@@ -44,6 +90,30 @@ end
 -- Select a ship by id (nil deselects)
 function StateRenderer:selectShip(id)
     self.selectedShipId = id
+end
+
+-- Handle mouse wheel scrolling for the event log sidebar
+-- @param delta number - wheel delta (positive = scroll up, negative = scroll down)
+-- @param state table - current game state (for log access)
+function StateRenderer:onWheelMoved(delta, state)
+    if not self.lastLogCount then
+        self.lastLogCount = 0
+    end
+    local log = (state and state.meta and state.meta.eventLog) or {}
+    local w = love.graphics.getWidth()
+    local h = love.graphics.getHeight()
+    local sw = Config.SIDEBAR_WIDTH
+    local sh = h - Config.INFO_BAR_HEIGHT
+    local font = love.graphics.getFont()
+    local fh = font:getHeight()
+    local headerH = fh + 24
+    local lh = fh + 4
+    local maxRows = math.floor((sh - headerH - 8) / lh)
+    local maxOffset = math.max(0, #log - maxRows)
+    
+    -- Adjust scroll offset (3 lines per notch, negative delta = scroll down)
+    self.scrollOffset = self.scrollOffset - delta * 3
+    self.scrollOffset = math.max(0, math.min(self.scrollOffset, maxOffset))
 end
 
 -- Return the ship table matching the current selection, or nil
@@ -89,6 +159,14 @@ function StateRenderer:draw(state)
 
     self.board:draw()
 
+    -- Shoot range indicator: red rectangle per turret, 1 tile wide x
+    -- TURRET_RANGE tiles long, extending in the turret's facing direction.
+    -- Drawn UNDER asteroids and ships so they stay visible on top; shown in
+    -- every phase.
+    for _, ship in ipairs(state.ships or {}) do
+        self:_drawShootRange(ship, ts)
+    end
+
     -- Asteroids
     for _, ast in ipairs(state.asteroids or {}) do
         local ax = ox + ast.x * ts
@@ -99,6 +177,20 @@ function StateRenderer:draw(state)
         love.graphics.rectangle("fill", ax, ay, aw, ah)
         love.graphics.setColor(0.32, 0.24, 0.17)
         love.graphics.rectangle("line", ax + 0.5, ay + 0.5, aw - 1, ah - 1)
+
+        -- Momentum arrow, mirroring the ship style (arrow + M() label).
+        -- Anchored at the asteroid rect's center, scaled like ships (0.5).
+        local acx = ax + aw / 2
+        local acy = ay + ah / 2
+        if ast.momentum and (ast.momentum.x ~= 0 or ast.momentum.y ~= 0) then
+            love.graphics.setColor(0.3, 1.0, 1.0, 0.7)
+            love.graphics.setLineWidth(2)
+            love.graphics.line(acx, acy, acx + ast.momentum.x * ts * 0.5, acy + ast.momentum.y * ts * 0.5)
+            love.graphics.setLineWidth(1)
+            local font = love.graphics.getFont()
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.print(("M(%d,%d)"):format(ast.momentum.x, ast.momentum.y), ax, ay + ah + 2)
+        end
     end
 
     -- Ships
@@ -183,6 +275,36 @@ function StateRenderer:_drawShip(ship, ts)
     end
 end
 
+-- Shoot range indicator: a translucent red rectangle, 1 tile wide x
+-- TURRET_RANGE tiles long, centered on the turret's line of fire and
+-- extending outward from the ship tile's edge in the turret's facing
+-- direction. Rotated via push/translate/rotate so all 8 facings work.
+function StateRenderer:_drawShootRange(ship, ts)
+    local td = Config.DIRECTIONS[ship.turretFacing or ship.facing]
+    if not td then
+        return
+    end
+    local cx, cy = self.board:gridToScreen(ship.x, ship.y)
+    local len = Config.TURRET_RANGE * ts
+    -- Rect center sits half a tile out along the facing so the rect starts at
+    -- the ship tile's edge and covers exactly the RANGE tiles a shot can hit.
+    local rx = cx + td.x * (ts * 0.5 + len * 0.5)
+    local ry = cy + td.y * (ts * 0.5 + len * 0.5)
+    -- atan2(td.y, td.x) is the facing angle in y-down screen coords; the rect
+    -- is drawn with its LENGTH along local +x so rotation aligns it with td.
+    local angle = math.atan2(td.y, td.x)
+    love.graphics.push()
+    love.graphics.translate(rx, ry)
+    love.graphics.rotate(angle)
+    love.graphics.setColor(Config.SHOOT_RANGE_COLOR[1], Config.SHOOT_RANGE_COLOR[2],
+        Config.SHOOT_RANGE_COLOR[3], Config.SHOOT_RANGE_ALPHA)
+    love.graphics.rectangle("fill", -len * 0.5, -ts * 0.5, len, ts)
+    love.graphics.setColor(Config.SHOOT_RANGE_COLOR[1], Config.SHOOT_RANGE_COLOR[2],
+        Config.SHOOT_RANGE_COLOR[3], Config.SHOOT_RANGE_BORDER_ALPHA)
+    love.graphics.rectangle("line", -len * 0.5, -ts * 0.5, len, ts)
+    love.graphics.pop()
+end
+
 function StateRenderer:_drawSidebar(state)
     local w = love.graphics.getWidth()
     local h = love.graphics.getHeight()
@@ -201,60 +323,96 @@ function StateRenderer:_drawSidebar(state)
     love.graphics.rectangle("line", sx + 1, sy + 1, sw - 2, sh - 2)
     love.graphics.setLineWidth(1)
 
-    -- Header section (scaled to the 3x font). The old right-aligned hint
-    -- "click a ship to select" no longer fits beside "SHIPS" at this size,
-    -- so it's dropped.
+    -- Header strip: title + a right-aligned turn/phase tag.
     local headerH = fh + 24
     love.graphics.setColor(Config.SIDEBAR_SECTION_BG)
     love.graphics.rectangle("fill", sx, sy, sw, headerH)
     love.graphics.setColor(1, 1, 1)
-    love.graphics.print("SHIPS", sx + 12, sy + 12)
+    love.graphics.print("EVENT LOG", sx + 12, sy + 12)
+    local meta = state.meta or {}
+    local tag = ("TURN %d | %s"):format(meta.turn or 0, meta.phase or "?")
+    love.graphics.setColor(0.6, 0.6, 0.6)
+    love.graphics.print(tag, sx + sw - 12 - font:getWidth(tag), sy + 12)
 
-    -- Ship cards, sized from font height so nothing overlaps at 3x
-    local cardH = fh * 4 + 16 -- swatch row + 3 text lines
-    local pad = 8
-    local x0 = sx + 12
-    local y = sy + headerH + 12
-    local cw = sw - 20 - pad * 2 -- usable text width inside a card
-    for _, ship in ipairs(state.ships or {}) do
-        local selected = self.selectedShipId == ship.id
-        if selected then
-            love.graphics.setColor(Config.CARD_SELECTED_BG)
+    -- Event log body: HEAD-ANCHORED (oldest at top, newest at bottom).
+    -- Supports scrollOffset for viewing history; auto-scrolls to bottom on new entries.
+    local log = (state.meta and state.meta.eventLog) or {}
+    if #log == 0 then
+        love.graphics.setColor(0.6, 0.6, 0.6)
+        love.graphics.print("No events yet.", sx + 12,
+            sy + headerH + (sh - headerH) / 2 - fh / 2)
+        return
+    end
+
+    local cw = sw - 20
+    local lh = fh + 4 -- line height: font height + small padding
+    local maxRows = math.floor((sh - headerH - 8) / lh)
+
+    -- Initialize scroll state if needed
+    if self.scrollOffset == nil then self.scrollOffset = 0 end
+    if self.lastLogCount == nil then self.lastLogCount = 0 end
+
+    -- Auto-scroll to bottom when new entries are appended and user was at bottom
+    local maxOffset = math.max(0, #log - maxRows)
+    local wasAtBottom = (self.scrollOffset >= maxOffset - 0.5) -- small epsilon
+    if #log > self.lastLogCount and wasAtBottom then
+        self.scrollOffset = maxOffset
+    end
+    self.lastLogCount = #log
+
+    -- Clamp scroll offset to valid range
+    self.scrollOffset = math.max(0, math.min(self.scrollOffset, maxOffset))
+
+    -- Determine visible range (head-anchored: start from top + scrollOffset)
+    local startIdx = 1 + math.floor(self.scrollOffset)
+    local endIdx = math.min(#log, startIdx + maxRows - 1)
+
+    -- Visual indicator: "▲ N more above" when scrolled down from top
+    local y = sy + headerH + 8
+    if self.scrollOffset > 0 then
+        local above = math.floor(self.scrollOffset)
+        love.graphics.setColor(0.5, 0.5, 0.5)
+        love.graphics.print(("▲ %d more above"):format(above), sx + 12, y)
+        y = y + lh
+    end
+
+    -- Draw visible entries from top to bottom
+    for i = startIdx, endIdx do
+        local entry = log[i]
+        local color
+        if entry.type == "plan" or entry.type == "calc" then
+            color = PLAYER_COLORS[((entry.shipId or 1) - 1) % 4 + 1]
+        elseif entry.type == "collision" or entry.type == "ship_collision" then
+            color = {1, 0.85, 0.3}   -- warm yellow
+        elseif entry.type == "wall" then
+            color = {1, 0.6, 0.2}    -- orange
+        elseif entry.type == "destroyed" then
+            color = {1, 0.35, 0.35}  -- red
+        elseif entry.type == "shot" then
+            color = {0.4, 0.8, 1}    -- cyan
+        elseif entry.type == "system" then
+            if string.sub(entry.text, 1, 3) == "---" then
+                color = {0.9, 0.9, 0.9}
+            else
+                color = {0.65, 0.65, 0.65}
+            end
         else
-            love.graphics.setColor(Config.SIDEBAR_SECTION_BG)
+            color = {0.85, 0.85, 0.85}
         end
-        love.graphics.rectangle("fill", x0, y, sw - 20, cardH)
-        if selected then
-            love.graphics.setColor(Config.CARD_SELECTED_BORDER)
-            love.graphics.setLineWidth(2)
-            love.graphics.rectangle("line", x0, y, sw - 20, cardH)
-            love.graphics.setLineWidth(1)
-        end
-
-        -- Color swatch + heading
-        local color = PLAYER_COLORS[((ship.id - 1) % 4) + 1]
         love.graphics.setColor(color)
-        love.graphics.rectangle("fill", x0 + pad, y + pad, 30, 30)
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.print(("SHIP %d"):format(ship.id), x0 + pad + 40, y + pad)
+        local text = fitText(font, cw, entry.text)
+        text = clampLogLine(font, cw, text)
+        love.graphics.print(text, sx + 12, y)
+        y = y + lh
+    end
 
-        -- HP/FUEL + FACING/MOM lines (abbreviated when the card is narrow)
-        local mom = ship.momentum or { x = 0, y = 0 }
-        local fac = ship.facing or "?"
-        local hpF = ("HP %d/%d"):format(ship.hp, Config.SHIP_HP)
-        local fuelF = ("FUEL %d/%d"):format(ship.fuel, Config.SHIP_FUEL)
-        local line1 = fitText(font, cw, ("%s  %s"):format(hpF, fuelF), ("%s %s"):format(hpF, fuelF))
-        local line2 = fitText(font, cw,
-            ("FACING %s  MOM (%d,%d)"):format(fac, mom.x, mom.y),
-            ("FAC %s  MOM (%d,%d)"):format(fac, mom.x, mom.y),
-            ("FAC %s MOM %d,%d"):format(fac, mom.x, mom.y))
-        love.graphics.setColor(0.85, 0.85, 0.85)
-        love.graphics.print(line1, x0 + pad, y + pad + fh)
-        love.graphics.print(line2, x0 + pad, y + pad + 2 * fh)
-        if ship.movement then
-            love.graphics.print(("-> %s x%d"):format(ship.movement.direction, ship.movement.stepsRemaining), x0 + pad, y + pad + 3 * fh)
+    -- Visual indicator: "▼ N more below" when not at bottom
+    if self.scrollOffset < maxOffset then
+        local below = #log - endIdx
+        if below > 0 then
+            love.graphics.setColor(0.5, 0.5, 0.5)
+            love.graphics.print(("▼ %d more below"):format(below), sx + 12, y)
         end
-        y = y + cardH + 8
     end
 end
 
@@ -276,7 +434,7 @@ function StateRenderer:_drawInfoBar(state)
 
     -- Top row: turn/phase/player box (top-left)
     local meta = state.meta or {}
-    local metaText = ("TURN %d | PHASE %s | PLAYER %d"):format(meta.turn or 0, meta.phase or "?", meta.currentPlayer or 0)
+    local metaText = ("TURN %d | PHASE %s"):format(meta.turn or 0, meta.phase or "?")
     local metaW = font:getWidth(metaText) + 24
     local metaH = fh + 28
     love.graphics.setColor(Config.SIDEBAR_SECTION_BG)
@@ -394,7 +552,7 @@ function StateRenderer:_drawHud(state)
     local meta = state.meta or {}
     local font = love.graphics.getFont()
     local fh = font:getHeight()
-    local line1 = ("TURN %d  |  PHASE %s  |  PLAYER %d"):format(meta.turn or 0, meta.phase or "?", meta.currentPlayer or 0)
+    local line1 = ("TURN %d  |  PHASE %s"):format(meta.turn or 0, meta.phase or "?")
     local w = font:getWidth(line1) + 18
     local boxH = fh + 18
 

@@ -63,7 +63,9 @@ local function loadActionsForTurn(turn)
     local path = "actions/turn" .. tostring(turn) .. "_plan.json"
     local ok, result = pcall(StateIO.load, path)
     if not ok or not result then
-        print("no action bundle for turn " .. tostring(turn) .. ": " .. tostring(result or path) .. " — proceeding with empty actions")
+        local msg = result or path
+        print("no action bundle for turn " .. tostring(turn) .. ": " .. tostring(msg)
+            .. " — proceeding with empty actions")
         return {}
     end
     return result
@@ -86,6 +88,114 @@ local function nextChainSeq()
 end
 
 -- ═══════════════════════════════════════════════════════════════════
+-- CLI ARGUMENT HANDLING
+-- ═══════════════════════════════════════════════════════════════════
+
+local function printUsage()
+    print("Usage: love . [OPTIONS] [STATE_FILE]")
+    print("")
+    print("Options:")
+    print("  --help              Show this help message and quit")
+    print("  --list              List all .json files under states/examples/ and quit")
+    print("  --example=NAME      Load an example state from states/examples/")
+    print("                      If NAME contains '/', uses")
+    print("                      states/examples/NAME.json")
+    print("                      Else tries states/examples/NAME.json")
+    print("                      Else falls back to states/examples/edge/NAME.json")
+    print("")
+    print("Positional:")
+    print("  STATE_FILE          Path to a state .json file (default: states/new_game.json)")
+    print("")
+    print("Examples:")
+    print("  love . --example=chain_collision")
+    print("  love . states/examples/edge/triple_ship.json")
+    print("  love . --list")
+    print("  love . --help")
+end
+
+local function listExampleStates()
+    local function walk(dir, results)
+        local items = love.filesystem.getDirectoryItems(dir)
+        if not items then return end
+        for _, name in ipairs(items) do
+            local path = dir .. "/" .. name
+            local info = love.filesystem.getInfo(path)
+            if info and info.type == "directory" then
+                walk(path, results)
+            elseif info and info.type == "file" and name:match("%.json$") then
+                results[#results + 1] = path
+            end
+        end
+    end
+    local results = {}
+    walk("states/examples", results)
+    table.sort(results)
+    for _, path in ipairs(results) do
+        print(path)
+    end
+end
+
+local function resolveExamplePath(name)
+    local path
+    if name:find("/") then
+        path = "states/examples/" .. name .. ".json"
+    else
+        path = "states/examples/" .. name .. ".json"
+        local info = love.filesystem.getInfo(path)
+        if not info then
+            path = "states/examples/edge/" .. name .. ".json"
+        end
+    end
+    return path
+end
+
+local function processArgs(args)
+    -- Check for --help first
+    for _, arg in ipairs(args) do
+        if arg == "--help" then
+            printUsage()
+            love.event.quit()
+            return nil, true
+        end
+    end
+
+    -- Check for --list
+    for _, arg in ipairs(args) do
+        if arg == "--list" then
+            listExampleStates()
+            love.event.quit()
+            return nil, true
+        end
+    end
+
+    -- Check for --example=NAME
+    for _, arg in ipairs(args) do
+        local name = arg:match("^%-%-example=(.+)$")
+        if name then
+            local path = resolveExamplePath(name)
+            return path, false
+        end
+    end
+
+    -- Check for unknown flags
+    for _, arg in ipairs(args) do
+        if arg:match("^%-%-") then
+            print("Unknown option: " .. arg .. " (ignored, using default)")
+            return "states/new_game.json", false
+        end
+    end
+
+    -- Positional argument (first non-flag)
+    for _, arg in ipairs(args) do
+        if not arg:match("^%-%-") then
+            return arg, false
+        end
+    end
+
+    return "states/new_game.json", false
+end
+
+-- ═══════════════════════════════════════════════════════════════════
 -- LOVE CALLBACKS
 -- ═══════════════════════════════════════════════════════════════════
 function love.load(args)
@@ -97,10 +207,20 @@ function love.load(args)
     recalcLayout()
     renderer = StateRenderer:new()
 
-    statePath = args[1] or "states/new_game.json"
+    local statePath, shouldQuit = processArgs(args)
+    if shouldQuit then
+        return
+    end
     state = loadState(statePath)
     if not state then
-        state = loadState("states/new_game.json")
+        print("Failed to load state: " .. tostring(statePath) .. ", falling back to default")
+        statePath = "states/new_game.json"
+        state = loadState(statePath)
+    end
+    if state then
+        local ph = state.meta and state.meta.phase or "?"
+        local tn = state.meta and state.meta.turn or "?"
+        print("loaded state: " .. statePath .. " (phase " .. ph .. ", turn " .. tn .. ")")
     end
 end
 
@@ -127,12 +247,16 @@ function love.keypressed(key)
                 actions = loadActionsForTurn(state.meta.turn)
             end
             state = GameState.advancePhase(state, actions)
-            local savePath = "states/play/" .. string.format("%03d", nextChainSeq()) .. "_" .. state.meta.phase .. ".json"
+            local seq = nextChainSeq()
+            local savePath = "states/play/" .. string.format("%03d", seq)
+                .. "_" .. state.meta.phase .. ".json"
             local ok, err = StateIO.saveFs(state, savePath)
             if ok then
-                print("PHASE " .. oldPhase .. " -> " .. state.meta.phase .. "  saved: " .. savePath)
+                print("PHASE " .. oldPhase .. " -> " .. state.meta.phase
+                    .. "  saved: " .. savePath)
             else
-                print("PHASE " .. oldPhase .. " -> " .. state.meta.phase .. "  save failed: " .. tostring(err))
+                print("PHASE " .. oldPhase .. " -> " .. state.meta.phase
+                    .. "  save failed: " .. tostring(err))
             end
         end
     elseif key == "t" then
@@ -176,4 +300,10 @@ function love.mousepressed(mx, my, button)
         end
     end
     renderer:selectShip(nil)
+end
+
+function love.wheelmoved(x, y)
+    if renderer and state then
+        renderer:onWheelMoved(y, state)
+    end
 end

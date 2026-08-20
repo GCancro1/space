@@ -56,14 +56,14 @@ end
 -- @param path string - filesystem path (CWD-relative)
 -- @return table|nil, string|nil - state table or nil + error message
 function StateIO.loadFs(path)
-	local f, err = pcall(io.open, path, "rb")
-	if not f or not err then
-		return nil, err or ("open failed: " .. tostring(f) .. " (" .. path .. ")")
+	local ok, f = pcall(io.open, path, "rb")
+	if not ok or not f then
+		return nil, f or ("open failed: " .. tostring(f) .. " (" .. path .. ")")
 	end
 	local content = f:read("*a")
 	f:close()
-	local ok, state = pcall(json.decode, content)
-	if not ok then
+	local ok2, state = pcall(json.decode, content)
+	if not ok2 then
 		return nil, "invalid JSON in " .. tostring(path) .. ": " .. tostring(state)
 	end
 	return state

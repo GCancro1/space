@@ -13,16 +13,19 @@ return {
     SHIP_FUEL = 20,
 
     -- Turret
-    TURRET_RANGE = 5,
+    TURRET_RANGE = 10,
     TURRET_POWER_MAX = 4,
     TURRET_DAMAGE = 1,
+    ASTEROID_HP = 2,
 
     -- Fuel costs
     FUEL_COST_THRUST = 1,
     FUEL_COST_SHOT = 1,
 
     -- Rotation
-    BODY_ROTATION_PER_TURN = 1,
+    BODY_ROTATION_PER_TURN = 1,      -- deprecated; per-step limits below govern rotation
+    BODY_ROTATION_MAX_STEPS = 2,     -- max body rotation per turn (2 steps = 90°)
+    TURRET_ROTATION_MAX_STEPS = 1,   -- max turret rotation per turn (1 step = 45°)
 
     -- Particles
     THRUSTER_LIFETIME = 0.5,
@@ -56,6 +59,9 @@ return {
     SHIP_COLOR = {0.2, 0.6, 1.0},
     TURRET_COLOR = {1.0, 0.8, 0.2},
     TEXT_COLOR = {0.8, 0.8, 0.8},
+    SHOOT_RANGE_COLOR = {1, 0.25, 0.25},  -- red
+    SHOOT_RANGE_ALPHA = 0.15,             -- translucent fill
+    SHOOT_RANGE_BORDER_ALPHA = 0.5,       -- outline
 
     -- Directions (8-way)
     DIRECTIONS = {
@@ -72,7 +78,7 @@ return {
     FACING_LIST = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"},
 
     -- Sidebar
-    SIDEBAR_WIDTH = 400,
+    SIDEBAR_WIDTH = 1200,
     SIDEBAR_BG = {0.1, 0.1, 0.15},
     SIDEBAR_BORDER = {0.25, 0.25, 0.3},
     SIDEBAR_SECTION_BG = {0.15, 0.15, 0.2},

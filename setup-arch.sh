@@ -6,6 +6,7 @@ if command -v love &>/dev/null; then
 else
     echo "Installing love via pacman..."
     sudo pacman -S --needed love
+    sudo pacman -S --needed luarocks
 fi
 
 love --version

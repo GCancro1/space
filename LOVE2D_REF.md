@@ -1,108 +1,51 @@
 # Love2D Quick Reference — Space Strategy Board Game
 
 ## Core Callbacks
-
-| Callback                  | When it runs                  | You'll use it for                      |
-| ------------------------- | ----------------------------- | -------------------------------------- |
-| `love.load()`               | Once at startup               | Create board, ships, turn manager      |
-| `love.draw()`               | Every frame (~60fps)          | Render grid, pieces, UI                |
-| `love.mousepressed(x,y,b)`  | When mouse button is pressed  | Click tiles, select pieces, fire       |
-| `love.mousereleased(x,y,b)` | When mouse button is released | (optional) drag-and-drop               |
-| `love.keypressed(key)`      | When key is pressed           | End turn, cancel selection, debug      |
-| `love.update(dt)`           | Every frame, before draw      | Animations only (movement tween, etc.) |
+| Callback | Use |
+|----------|-----|
+| `love.load()` | Create board, ships, TurnManager |
+| `love.draw()` | Render grid, pieces, UI |
+| `love.mousepressed(x,y,b)` | Click tiles, select pieces, fire |
+| `love.keypressed(key)` | End turn, cancel selection |
+| `love.update(dt)` | Animations only (movement tween) |
 
 ## Graphics (love.graphics)
-
-### Drawing shapes:
 ```lua
-love.graphics.rectangle(mode, x, y, width, height)
-love.graphics.circle(mode, x, y, radius)
+love.graphics.rectangle("fill"|"line", x, y, w, h)
+love.graphics.circle("fill"|"line", x, y, r)
 love.graphics.line(x1, y1, x2, y2)
-love.graphics.polygon(mode, x1, y1, x2, y2, ...)
-```
-- `mode` = `"fill"` or `"line"`
-
-### Color — set before drawing:
-```lua
-love.graphics.setColor(r, g, b, a)  -- 0 to 1 each
--- examples:
-love.graphics.setColor(0.2, 0.6, 1.0)       -- blue
-love.graphics.setColor(1, 0, 0, 0.5)        -- semi-transparent red
+love.graphics.polygon("fill"|"line", x1,y1, x2,y2, ...)
+love.graphics.setColor(r, g, b, a)  -- 0-1
+love.graphics.print("text", x, y)
+love.graphics.setColor(1, 1, 1)     -- reset
 ```
 
-### Text:
+## Input
 ```lua
-love.graphics.print("Turn 1", x, y)
-love.graphics.printf("Hello", x, y, limit, align)
+love.mouse.getPosition()  -- x, y
+love.mouse.isDown(1)      -- left click held
+love.keyboard.isDown("escape")
 ```
 
-### Reset color after drawing:
+## Coordinate Conversion
 ```lua
-love.graphics.setColor(1, 1, 1)
-```
-
-## Input (love.mouse)
-
-```lua
-love.mouse.getPosition()          -- returns x, y
-love.mouse.getX() / love.mouse.getY()
-love.mouse.isDown(button)         -- 1=left, 2=right, 3=middle
-```
-
-## Input (love.keyboard)
-
-```lua
-love.keyboard.isDown("escape")    -- check if key is held
-```
-
-## Timer / Utility
-
-```lua
-love.timer.getDelta()             -- time since last frame (for animations)
-love.timer.getTime()              -- seconds since app started
-```
-
-## Coordinate Conversion (you write these)
-
-```lua
--- screen pixel → grid tile
-function board:screenToGrid(mx, my)
-    local gx = math.floor(mx / self.tileSize)
-    local gy = math.floor(my / self.tileSize)
-    return gx, gy
+function Board:screenToGrid(mx, my)
+    return math.floor(mx / self.tileSize), math.floor(my / self.tileSize)
 end
-
--- grid tile → screen pixel
-function board:gridToScreen(gx, gy)
+function Board:gridToScreen(gx, gy)
     return gx * self.tileSize, gy * self.tileSize
 end
 ```
 
-## Game Tick Flow
-
-```
-love.load()          →  set up everything
-       ↓
-love.update(dt)      →  animate things (only when transitioning)
-       ↓
-love.draw()          →  render everything
-       ↓
-love.mousepressed()  →  handle clicks → update game state
-```
-
 ## Architecture
-
-| Class       | Owns                          | Key methods                               | Status |
-| ----------- | ----------------------------- | ----------------------------------------- | ------ |
-| **Board**       | 2D grid, tile size            | `draw()`, `screenToGrid(mx,my)`, `inBounds(x,y)` | ✅ |
-| **Ship**        | Position, facing, momentum    | `draw()`, `moveTo()`, `rotateTo()`              | ✅ |
-| **Asteroid**    | Position, size, sprite        | `draw()`, `occupies(gx,gy)`                     | ✅ |
-| **ShipPanel**   | Bottom info bar               | `drawAll(ships, y, h, width)`                   | ✅ |
-| **Sidebar**     | Right sidebar UI              | `update()`, `draw()`, `getSelectedAction()`     | ✅ |
-| **TurnManager** | Current phase, current player | `nextPhase()`, `isPhase(name)`, `endTurn()`     | 🔲 |
+| Class | Key Methods |
+|-------|-------------|
+| **Board** | `draw()`, `screenToGrid()`, `inBounds()`, `tileSize` |
+| **Ship** | `draw()`, `moveTo()`, `rotateTo()`, `facing`, `momentum` |
+| **Asteroid** | `draw()`, `occupies(gx,gy)`, `size` |
+| **ShipPanel** | `drawAll(ships, y, h, width)` |
+| **Sidebar** | `update()`, `draw()`, `getSelectedAction()` |
+| **TurnManager** | `nextPhase()`, `isPhase(name)`, `endTurn()`, `phase` |
 
 ## Turn Phases
-
-```
-PLAN → CALC → MOVE → COLLIDE → END_TURN
-```
+`PLAN → CALC → MOVE → COLLIDE → END_TURN`

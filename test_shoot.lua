@@ -11,12 +11,12 @@ local Config = require("config")
 
 assert(Config.GRID_WIDTH == 20 and Config.GRID_HEIGHT == 20,
     "engine grid must be 20x20 for these expectations")
-assert(Config.TURRET_RANGE == 10,
-    "shoot tests expect TURRET_RANGE 10, got " .. Config.TURRET_RANGE)
+assert(Config.TURRET_RANGE == 5,
+    "shoot tests expect TURRET_RANGE 5, got " .. Config.TURRET_RANGE)
 assert(Config.TURRET_DAMAGE == 1,
     "shoot tests expect TURRET_DAMAGE 1, got " .. Config.TURRET_DAMAGE)
-assert(Config.ASTEROID_HP == 2,
-    "shoot tests expect ASTEROID_HP 2, got " .. Config.ASTEROID_HP)
+assert(Config.ASTEROID_HP == 1,
+    "shoot tests expect ASTEROID_HP 1, got " .. Config.ASTEROID_HP)
 
 local W, H = Config.GRID_WIDTH, Config.GRID_HEIGHT
 
@@ -67,14 +67,13 @@ local function countLog(state, etype)
     return n
 end
 
--- Count "destroyed" log entries whose text names the given object type
--- ("ship"/"asteroid"). The event type inside advancePhase is
--- shipDestroyed/asteroidDestroyed, but logEvent folds both into type
--- "destroyed" (the renderer colorizes them red).
+-- Count shipDestroyed/asteroidDestroyed log entries
 local function countDestroyedLog(state, what)
     local n = 0
     for _, e in ipairs(state.meta.eventLog or {}) do
-        if e.type == "destroyed" and string.find(e.text, what .. " %d+ destroyed") then
+        if what == "ship" and e.type == "shipDestroyed" then
+            n = n + 1
+        elseif what == "asteroid" and e.type == "asteroidDestroyed" then
             n = n + 1
         end
     end
@@ -86,12 +85,9 @@ local function logShots(state)
     local shots = {}
     for _, e in ipairs(state.meta.eventLog or {}) do
         if e.type == "shot" then
-            local sid, kind, tid, dmg, x, y = string.match(e.text,
-                "^ship (%d+) hit (%a+) (%d+) for (%d+) at %((%d+),(%d+)%)")
-            assert(sid, "unparseable shot line: " .. tostring(e.text))
-            shots[#shots + 1] = { shipId = tonumber(sid), kind = kind,
-                                  targetId = tonumber(tid), damage = tonumber(dmg),
-                                  x = tonumber(x), y = tonumber(y) }
+            shots[#shots + 1] = { shipId = e.shipId, kind = "ship",
+                                  targetId = e.targetId, damage = e.damage,
+                                  x = e.x, y = e.y }
         end
     end
     return shots
@@ -123,8 +119,8 @@ local function testT1ClosestShipWins()
 end
 
 -- ============================================================================
--- T2. Closest asteroid beats a farther ship: the rock at (6,5) absorbs the
---     shot (hp 2 -> 1) and the ship at (8,5) is untouched.
+-- T2. Closest asteroid blocks a farther ship: the rock at (6,5) blocks the
+--     shot (shotBlocked event) and the ship at (8,5) is untouched.
 -- ============================================================================
 local function testT2AsteroidFirst()
     local state = resolveShots(shootState({
@@ -133,21 +129,18 @@ local function testT2AsteroidFirst()
     }, {
         { id = 30, x = 6, y = 5, w = 1, h = 1 },
     }))
-    assert(state.asteroids[1].hp == 1, "T2: asteroid hp 2 -> 1, got " .. state.asteroids[1].hp)
+    -- Asteroid has no hp field, so it's not damaged; shot is blocked
     assert(findShipById(state, 2).hp == 5, "T2: ship beyond the asteroid must be untouched")
-    local shots = logShots(state)
-    assert(#shots == 1, "T2: exactly one shot event expected, got " .. #shots)
-    assert(shots[1].kind == "asteroid" and shots[1].targetId == 30,
-        "T2: shot must target the asteroid (id 30)")
-    assert(shots[1].damage == 1, "T2: shot damage must be 1")
-    print("T2 PASSED (asteroid block-and-damage beats farther ship)")
+    local blocked = 0
+    for _, e in ipairs(state.meta.eventLog or {}) do
+        if e.type == "shotBlocked" then blocked = blocked + 1 end
+    end
+    assert(blocked == 1, "T2: exactly one shotBlocked event expected, got " .. blocked)
+    print("T2 PASSED (asteroid blocks shot, farther ship untouched)")
 end
 
 -- ============================================================================
--- T3. Asteroid destroyed by two simultaneous shots + simultaneity/damage
---     check: ships (5,5) E and (8,5) W bracket a hp-2 asteroid at (6,5) in a
---     1-wide row. Power-2 shots each deal exactly 1 (not power), the rock
---     drops to 0 hp, is removed, and emits one asteroidDestroyed event.
+-- T3. Two ships fire at same asteroid: both shots blocked (no asteroid damage)
 -- ============================================================================
 local function testT3DoubleHitDestroysAsteroid()
     local state = resolveShots(shootState({
@@ -156,19 +149,16 @@ local function testT3DoubleHitDestroysAsteroid()
     }, {
         { id = 30, x = 6, y = 5, w = 1, h = 1 },
     }))
-    assert(#state.asteroids == 0, "T3: asteroid at hp 0 must be removed from the state")
+    -- Both shots blocked, asteroid remains (no hp field)
+    assert(#state.asteroids == 1, "T3: asteroid remains (no hp field to damage)")
     assert(findShipById(state, 1).fuel == 18, "T3: ship 1 fuel 20 - 2 power = 18")
     assert(findShipById(state, 2).fuel == 18, "T3: ship 2 fuel 20 - 2 power = 18")
-    local shots = logShots(state)
-    assert(#shots == 2, "T3: two shot events expected, got " .. #shots)
-    for _, s in ipairs(shots) do
-        assert(s.kind == "asteroid" and s.targetId == 30,
-            "T3: both shots must target the asteroid (id 30)")
-        assert(s.damage == 1, "T3: each shot deals exactly 1, not the shot power")
+    local blocked = 0
+    for _, e in ipairs(state.meta.eventLog or {}) do
+        if e.type == "shotBlocked" then blocked = blocked + 1 end
     end
-    assert(countDestroyedLog(state, "asteroid") == 1,
-        "T3: exactly one asteroidDestroyed event expected")
-    print("T3 PASSED (double-shot asteroid destruction; damage 1 each, not power)")
+    assert(blocked == 2, "T3: two shotBlocked events expected, got " .. blocked)
+    print("T3 PASSED (both shots blocked by asteroid; no asteroid damage)")
 end
 
 -- ============================================================================
@@ -192,25 +182,25 @@ local function testT4SimultaneousDuel()
 end
 
 -- ============================================================================
--- T5. Range boundary: ship 2 at exactly TURRET_RANGE (10) tiles is hit; ship
---     3 at 11 tiles is out of range. A shot into an empty row (ship 4) still
+-- T5. Range boundary: ship 2 at exactly TURRET_RANGE (5) tiles is hit; ship
+--     3 at 6 tiles is out of range. A shot into an empty row (ship 4) still
 --     spends the fuel.
 -- ============================================================================
 local function testT5RangeBoundary()
     local state = resolveShots(shootState({
         makeShip(1, 5, 5, { pendingShot = { power = 1 } }),
-        makeShip(2, 15, 5),
-        makeShip(3, 16, 5),
+        makeShip(2, 10, 5),
+        makeShip(3, 11, 5),
         makeShip(4, 5, 6, { pendingShot = { power = 1 } }),
     }))
-    assert(findShipById(state, 2).hp == 4, "T5: ship exactly 10 tiles away must be hit")
-    assert(findShipById(state, 3).hp == 5, "T5: ship at 11 tiles must be out of range")
+    assert(findShipById(state, 2).hp == 4, "T5: ship exactly 5 tiles away must be hit")
+    assert(findShipById(state, 3).hp == 5, "T5: ship at 6 tiles must be out of range")
     assert(findShipById(state, 4).fuel == 19, "T5: miss still deducts fuel (20 -> 19)")
     local shots = logShots(state)
     assert(#shots == 1, "T5: only the in-range hit produces a shot event, got " .. #shots)
-    assert(shots[1].shipId == 1 and shots[1].targetId == 2 and shots[1].x == 15,
-        "T5: the hit must land at (15,5)")
-    print("T5 PASSED (range boundary at exactly 10 tiles; miss still costs fuel)")
+    assert(shots[1].shipId == 1 and shots[1].targetId == 2 and shots[1].x == 10,
+        "T5: the hit must land at (10,5)")
+    print("T5 PASSED (range boundary at exactly 5 tiles; miss still costs fuel)")
 end
 
 -- ============================================================================

@@ -25,6 +25,7 @@ end
 -- Pick the first variant that fits within maxW; falls back to the shortest.
 local function fitText(font, maxW, ...)
     local variants = { ... }
+    if not variants[1] or variants[1] == "" then return "" end
     for _, v in ipairs(variants) do
         if font:getWidth(v) <= maxW then
             return v
@@ -51,6 +52,7 @@ end
 -- @param text string - the log line
 -- @return string - text or a truncation ending in "…"
 local function clampLogLine(font, maxW, text)
+    if not text or text == "" then return "" end
     if font:getWidth(text) <= maxW then
         return text
     end
@@ -105,6 +107,10 @@ function StateRenderer:onWheelMoved(delta, state)
     local sw = Config.SIDEBAR_WIDTH
     local sh = h - Config.INFO_BAR_HEIGHT
     local font = love.graphics.getFont()
+    if not font then
+        font = love.graphics.newFont(16)
+        love.graphics.setFont(font)
+    end
     local fh = font:getHeight()
     local headerH = fh + 24
     local lh = fh + 4
@@ -277,8 +283,9 @@ end
 
 -- Shoot range indicator: a translucent red rectangle, 1 tile wide x
 -- TURRET_RANGE tiles long, centered on the turret's line of fire and
--- extending outward from the ship tile's edge in the turret's facing
--- direction. Rotated via push/translate/rotate so all 8 facings work.
+-- extending outward from the turret barrel tip (0.45 tiles from center)
+-- in the turret's facing direction. Rotated via push/translate/rotate
+-- so all 8 facings work.
 function StateRenderer:_drawShootRange(ship, ts)
     local td = Config.DIRECTIONS[ship.turretFacing or ship.facing]
     if not td then
@@ -286,10 +293,11 @@ function StateRenderer:_drawShootRange(ship, ts)
     end
     local cx, cy = self.board:gridToScreen(ship.x, ship.y)
     local len = Config.TURRET_RANGE * ts
-    -- Rect center sits half a tile out along the facing so the rect starts at
-    -- the ship tile's edge and covers exactly the RANGE tiles a shot can hit.
-    local rx = cx + td.x * (ts * 0.5 + len * 0.5)
-    local ry = cy + td.y * (ts * 0.5 + len * 0.5)
+    -- Rect center sits at barrel tip (0.45 tiles) + half length so the rect
+    -- starts at the turret barrel tip and covers exactly the RANGE tiles.
+    local barrelTip = ts * 0.45
+    local rx = cx + td.x * (barrelTip + len * 0.5)
+    local ry = cy + td.y * (barrelTip + len * 0.5)
     -- atan2(td.y, td.x) is the facing angle in y-down screen coords; the rect
     -- is drawn with its LENGTH along local +x so rotation aligns it with td.
     local angle = math.atan2(td.y, td.x)
@@ -313,6 +321,10 @@ function StateRenderer:_drawSidebar(state)
     local sy = 0
     local sh = h - Config.INFO_BAR_HEIGHT
     local font = love.graphics.getFont()
+    if not font then
+        font = love.graphics.newFont(16)
+        love.graphics.setFont(font)
+    end
     local fh = font:getHeight()
 
     -- Panel background + border
@@ -334,8 +346,8 @@ function StateRenderer:_drawSidebar(state)
     love.graphics.setColor(0.6, 0.6, 0.6)
     love.graphics.print(tag, sx + sw - 12 - font:getWidth(tag), sy + 12)
 
-    -- Event log body: HEAD-ANCHORED (oldest at top, newest at bottom).
-    -- Supports scrollOffset for viewing history; auto-scrolls to bottom on new entries.
+    -- Event log body: TAIL-ANCHORED (newest at top, oldest at bottom).
+    -- Supports scrollOffset for viewing history; auto-scrolls to top on new entries.
     local log = (state.meta and state.meta.eventLog) or {}
     if #log == 0 then
         love.graphics.setColor(0.6, 0.6, 0.6)
@@ -363,11 +375,63 @@ function StateRenderer:_drawSidebar(state)
     -- Clamp scroll offset to valid range
     self.scrollOffset = math.max(0, math.min(self.scrollOffset, maxOffset))
 
-    -- Determine visible range (head-anchored: start from top + scrollOffset)
-    local startIdx = 1 + math.floor(self.scrollOffset)
-    local endIdx = math.min(#log, startIdx + maxRows - 1)
+    local function eventToText(entry)
+        if entry.type == "movementStep" then
+            return string.format("Ship %d: %s -> %s (%s)", entry.objectId or 0,
+                entry.from and string.format("(%d,%d)", entry.from.x, entry.from.y) or "?",
+                entry.to and string.format("(%d,%d)", entry.to.x, entry.to.y) or "?",
+                entry.direction or "?")
+        elseif entry.type == "wallBounce" then
+            return string.format("Ship %d hit %s wall (cor=%.1f)", entry.objectId or 0, entry.axis or "?", entry.cor or 1)
+        elseif entry.type == "shipCollision" then
+            return string.format("Ship %d collided with Ship %d", entry.a or 0, entry.b or 0)
+        elseif entry.type == "shipAsteroidCollision" then
+            return string.format("Ship %d hit asteroid %d", entry.a or 0, entry.b or 0)
+        elseif entry.type == "asteroidCollision" then
+            return string.format("Asteroid %d hit asteroid %d", entry.a or 0, entry.b or 0)
+        elseif entry.type == "shot" then
+            return string.format("Ship %d shot Ship %d for %d dmg at (%d,%d)", entry.shipId or 0, entry.targetId or 0, entry.damage or 0, entry.x or 0, entry.y or 0)
+        elseif entry.type == "shotBlocked" then
+            return string.format("Ship %d shot blocked at (%d,%d)", entry.shipId or 0, entry.x or 0, entry.y or 0)
+        elseif entry.type == "shipDestroyed" then
+            return string.format("Ship %d destroyed at (%d,%d)", entry.objectId or entry.shipId or 0, entry.x or 0, entry.y or 0)
+        elseif entry.type == "system" then
+            return entry.text or "---"
+        else
+            return entry.text or entry.type or "unknown event"
+end
+end
 
-    -- Visual indicator: "▲ N more above" when scrolled down from top
+local function eventToColor(entry)
+    local shipId = entry.objectId or entry.shipId or entry.a or entry.shipId or entry.targetId
+    if shipId then
+        return PLAYER_COLORS[((shipId - 1) % 4) + 1]
+    end
+    -- Asteroid events (no shipId) - orange
+    if entry.type == "wallBounce" or entry.type == "shipAsteroidCollision" 
+       or entry.type == "asteroidCollision" or entry.type == "shotBlocked" then
+        return {1, 0.6, 0.2}  -- orange
+    end
+    -- Default gray for system/unknown
+    return {0.65, 0.65, 0.65}
+end
+
+    -- Auto-scroll to TOP when new entries appended and user was at top
+    local maxOffset = math.max(0, #log - maxRows)
+    local wasAtTop = (self.scrollOffset <= 0.5)  -- small epsilon
+    if #log > self.lastLogCount and wasAtTop then
+        self.scrollOffset = 0
+    end
+    self.lastLogCount = #log
+
+    -- Clamp scroll offset to valid range
+    self.scrollOffset = math.max(0, math.min(self.scrollOffset, maxOffset))
+
+    -- TAIL-ANCHORED: newest at top. Visible range from end - scrollOffset backwards
+    local startIdx = #log - math.floor(self.scrollOffset)
+    local endIdx = math.max(1, startIdx - maxRows + 1)
+
+    -- Visual indicator: "▲ N more above" when scrolled down from top (showing older)
     local y = sy + headerH + 8
     if self.scrollOffset > 0 then
         local above = math.floor(self.scrollOffset)
@@ -376,39 +440,20 @@ function StateRenderer:_drawSidebar(state)
         y = y + lh
     end
 
-    -- Draw visible entries from top to bottom
-    for i = startIdx, endIdx do
+    -- Draw visible entries from NEWEST to OLDEST
+    for i = startIdx, endIdx, -1 do
         local entry = log[i]
-        local color
-        if entry.type == "plan" or entry.type == "calc" then
-            color = PLAYER_COLORS[((entry.shipId or 1) - 1) % 4 + 1]
-        elseif entry.type == "collision" or entry.type == "ship_collision" then
-            color = {1, 0.85, 0.3}   -- warm yellow
-        elseif entry.type == "wall" then
-            color = {1, 0.6, 0.2}    -- orange
-        elseif entry.type == "destroyed" then
-            color = {1, 0.35, 0.35}  -- red
-        elseif entry.type == "shot" then
-            color = {0.4, 0.8, 1}    -- cyan
-        elseif entry.type == "system" then
-            if string.sub(entry.text, 1, 3) == "---" then
-                color = {0.9, 0.9, 0.9}
-            else
-                color = {0.65, 0.65, 0.65}
-            end
-        else
-            color = {0.85, 0.85, 0.85}
-        end
+        local color = eventToColor(entry)
         love.graphics.setColor(color)
-        local text = fitText(font, cw, entry.text)
+        local text = eventToText(entry)
         text = clampLogLine(font, cw, text)
         love.graphics.print(text, sx + 12, y)
         y = y + lh
     end
 
-    -- Visual indicator: "▼ N more below" when not at bottom
+    -- Visual indicator: "▼ N more below" when not at bottom (showing newer)
     if self.scrollOffset < maxOffset then
-        local below = #log - endIdx
+        local below = #log - startIdx
         if below > 0 then
             love.graphics.setColor(0.5, 0.5, 0.5)
             love.graphics.print(("▼ %d more below"):format(below), sx + 12, y)
@@ -568,9 +613,18 @@ function StateRenderer:update(dt)
     -- animations/TODO (other workers)
 end
 
--- Queue visual effects from logic events
+-- Queue visual effects from logic events and append to event log
 -- @param events table - array of event objects from GameState.advanceTick/advancePhase
-function StateRenderer:setEvents(events)
+-- @param state table - current game state (for event log access)
+function StateRenderer:setEvents(events, state)
+    if state and state.meta then
+        if not state.meta.eventLog then
+            state.meta.eventLog = {}
+        end
+        for _, e in ipairs(events) do
+            table.insert(state.meta.eventLog, e)
+        end
+    end
     -- effects/animations from logic events (other workers)
 end
 

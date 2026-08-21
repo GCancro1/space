@@ -1,0 +1,106 @@
+{
+  "meta": {
+    "turn": 1,
+    "phase": "PLAN",
+    "currentPlayer": 1
+  },
+  "board": {
+    "width": 20,
+    "height": 20
+  },
+  "ships": [
+    {
+      "id": 1,
+      "x": 10,
+      "y": 10,
+      "facing": "N",
+      "turretFacing": "N",
+      "hp": 5,
+      "fuel": 20,
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    }
+  ],
+  "asteroids": [
+    {
+      "id": 1,
+      "x": 9,
+      "y": 9,
+      "w": 1,
+      "h": 1,
+      "facing": "N",
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    },
+    {
+      "id": 2,
+      "x": 10,
+      "y": 9,
+      "w": 1,
+      "h": 1,
+      "facing": "N",
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    },
+    {
+      "id": 3,
+      "x": 11,
+      "y": 9,
+      "w": 1,
+      "h": 1,
+      "facing": "N",
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    },
+    {
+      "id": 4,
+      "x": 9,
+      "y": 10,
+      "w": 1,
+      "h": 1,
+      "facing": "N",
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    },
+    {
+      "id": 5,
+      "x": 11,
+      "y": 10,
+      "w": 1,
+      "h": 1,
+      "facing": "N",
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    },
+    {
+      "id": 6,
+      "x": 9,
+      "y": 11,
+      "w": 1,
+      "h": 1,
+      "facing": "N",
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    },
+    {
+      "id": 7,
+      "x": 10,
+      "y": 11,
+      "w": 1,
+      "h": 1,
+      "facing": "N",
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    },
+    {
+      "id": 8,
+      "x": 11,
+      "y": 11,
+      "w": 1,
+      "h": 1,
+      "facing": "N",
+      "momentum": { "x": 0, "y": 0 },
+      "movement": null
+    }
+  ]
+}

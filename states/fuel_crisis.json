@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "turn": 5,
+    "phase": "PLAN",
+    "currentPlayer": 1
+  },
+  "board": {
+    "width": 20,
+    "height": 20
+  },
+  "ships": [
+    {
+      "id": 1,
+      "x": 10,
+      "y": 10,
+      "facing": "N",
+      "turretFacing": "N",
+      "hp": 3,
+      "fuel": 1,
+      "momentum": { "x": 2, "y": 1 },
+      "movement": null
+    },
+    {
+      "id": 2,
+      "x": 15,
+      "y": 15,
+      "facing": "SW",
+      "turretFacing": "W",
+      "hp": 5,
+      "fuel": 20,
+      "momentum": { "x": -1, "y": -2 },
+      "movement": null
+    }
+  ],
+  "asteroids": []
+}

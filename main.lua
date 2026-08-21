@@ -19,18 +19,30 @@ local statePath = nil
 -- ═══════════════════════════════════════════════════════════════════
 local function recalcLayout()
     local w, h = love.graphics.getDimensions()
-    local sidebarW = Config.SIDEBAR_WIDTH
+    
+    -- Sidebar: 30-35% of window width, clamped to reasonable range
+    local sidebarW = math.min(math.max(math.floor(w * 0.33), 320), 600)
+    
+    -- Info bar: proportional to window height, clamped
+    local infoBarH = math.min(math.max(math.floor(h * 0.22), 180), 320)
+    
     local boardW = w - sidebarW
-    local boardH = h - Config.INFO_BAR_HEIGHT
+    local boardH = h - infoBarH
 
     local tileSizeX = math.floor(boardW / Config.GRID_WIDTH)
     local tileSizeY = math.floor(boardH / Config.GRID_HEIGHT)
     local tileSize = math.min(tileSizeX, tileSizeY)
 
+    -- Cap tile size to prevent oversized tiles on large screens
+    local maxTileSize = math.floor(math.min(w, h) / 20)
+    if tileSize > maxTileSize then
+        tileSize = maxTileSize
+    end
+
     local gridPixelW = tileSize * Config.GRID_WIDTH
     local gridPixelH = tileSize * Config.GRID_HEIGHT
-    local offsetX = 0
-    local offsetY = 0
+    local offsetX = math.floor((boardW - gridPixelW) / 2)
+    local offsetY = math.floor((boardH - gridPixelH) / 2)
 
     Config.TILE_SIZE = tileSize
     Config.SCREEN_WIDTH = w
@@ -39,7 +51,9 @@ local function recalcLayout()
     Config.GRID_OFFSET_Y = offsetY
     Config.BOARD_WIDTH = boardW
     Config.BOARD_HEIGHT = boardH
-    Config.INFO_BAR_Y = gridPixelH
+    Config.INFO_BAR_HEIGHT = infoBarH
+    Config.INFO_BAR_Y = gridPixelH + offsetY
+    Config.SIDEBAR_WIDTH = sidebarW
 
     board = Board:new(Config)
 end
@@ -199,10 +213,10 @@ end
 -- LOVE CALLBACKS
 -- ═══════════════════════════════════════════════════════════════════
 function love.load(args)
-    love.window.setMode(0, 0, { fullscreen = true })
     Assets.load()
-    -- Fixed 24px font; every love.graphics.print uses this font
-    Config.FONT_SIZE = 24
+    -- Base font size; will scale with window height
+    local w, h = love.graphics.getDimensions()
+    Config.FONT_SIZE = math.max(18, math.min(28, math.floor(h / 45)))
     love.graphics.setFont(love.graphics.newFont(Config.FONT_SIZE))
     recalcLayout()
     renderer = StateRenderer:new()
@@ -264,7 +278,7 @@ function love.keypressed(key)
             local newState, events = GameState.advanceTick(state)
             state = newState
             if events and #events > 0 then
-                renderer:setEvents(events)
+                renderer:setEvents(events, state)
             end
         end
     elseif key == "l" then

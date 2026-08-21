@@ -116,18 +116,16 @@ local function buildMovement(momentum)
         return nil
     end
     return { direction = vectorToDirection(momentum),
-             stepsRemaining = math.abs(momentum.x) + math.abs(momentum.y) }
+             stepsRemaining = math.max(math.abs(momentum.x), math.abs(momentum.y)) }
 end
 
--- Single-tile step vector for this tick, X steps first then Y steps.
--- xLeft = stepsRemaining - |momentum.y| tells us if we're still in the X segment.
+-- Single-tile step vector for this tick (true 8-direction diagonal).
 local function stepVector(obj)
-    local m = obj.momentum
-    local rem = obj.movement.stepsRemaining
-    if rem - math.abs(m.y) > 0 then
-        return { x = sign(m.x), y = 0 }
+    local d = Config.DIRECTIONS[obj.movement.direction]
+    if not d then
+        return { x = 0, y = 0 }
     end
-    return { x = 0, y = sign(m.y) }
+    return { x = d.x, y = d.y }
 end
 
 -- Wall bounce via the collision module. The module flips the hit axis and
@@ -160,10 +158,139 @@ end
 -- @param events table - array to append events to
 -- @param damage number|nil - damage dealt to hp-bearing objects (default 1)
 -- @param eventType string|nil - event type label (default 'shipCollision')
+-- Calculate minimum steps for a point to exit a rectangle along a direction vector.
+-- Returns the minimum positive integer steps to exit, or nil if direction never exits.
+-- @param px, py number - point position (ship)
+-- @param rx, ry, rw, rh number - rectangle bounds (asteroid)
+-- @param dx, dy number - step direction vector (-1, 0, or 1 each)
+-- @return number|nil - minimum steps to exit, or nil if cannot exit in this direction
+local function stepsToExitRect(px, py, rx, ry, rw, rh, dx, dy)
+    local candidates = {}
+    -- Exit right: px + n*dx >= rx + rw
+    if dx > 0 then
+        local n = math.ceil((rx + rw - px) / dx)
+        if n > 0 then table.insert(candidates, n) end
+    -- Exit left: px + n*dx < rx
+    elseif dx < 0 then
+        local n = math.ceil((px - rx + 1) / -dx)
+        if n > 0 then table.insert(candidates, n) end
+    end
+    -- Exit bottom: py + n*dy >= ry + rh
+    if dy > 0 then
+        local n = math.ceil((ry + rh - py) / dy)
+        if n > 0 then table.insert(candidates, n) end
+    -- Exit top: py + n*dy < ry
+    elseif dy < 0 then
+        local n = math.ceil((py - ry + 1) / -dy)
+        if n > 0 then table.insert(candidates, n) end
+    end
+    if #candidates == 0 then return nil end
+    table.sort(candidates)
+    return candidates[1]
+end
+
 local function handleObjectCollision(a, b, cor, events, damage, eventType)
     Collision.resolveObjectCollision(a, b, cor, events, damage, eventType)
+    
+    -- Rebuild movement from new momentum
     a.movement = buildMovement(a.momentum)
     b.movement = buildMovement(b.momentum)
+    
+    -- "Continue remaining movement" - move both objects by their NEW step vectors
+    -- This separates them after collision (physics: momentum transferred, both continue)
+    -- For ship-ship adjacency collisions (eventType nil or "shipCollision"), the burst
+    -- is consumed and movement is cleared UNLESS the collision leaves them overlapping
+    -- or still pushing into each other (in which case they grind like asteroids).
+    -- For overlap collisions (asteroid-asteroid, ship-asteroid), they continue grinding
+    -- so movement is NOT cleared.
+    local consumeBurst = (eventType == nil or eventType == "shipCollision")
+    
+    -- Special handling for ship-asteroid collision: move ship completely out of asteroid
+    local isShipAsteroid = (eventType == "shipAsteroidCollision")
+    local ship, asteroid
+    if isShipAsteroid then
+        -- a is ship (has hp), b is asteroid (has w/h)
+        if a.hp ~= nil then
+            ship, asteroid = a, b
+        else
+            ship, asteroid = b, a
+        end
+    end
+    
+    if a.movement then
+        local stepA = stepVector(a)
+        local steps = a.movement.stepsRemaining
+        if isShipAsteroid and a == ship then
+            local aw, ah = asteroid.w or 1, asteroid.h or 1
+            local exitSteps = stepsToExitRect(a.x, a.y, asteroid.x, asteroid.y, aw, ah, stepA.x, stepA.y)
+            if exitSteps then
+                steps = exitSteps
+            else
+                -- Try opposite direction
+                exitSteps = stepsToExitRect(a.x, a.y, asteroid.x, asteroid.y, aw, ah, -stepA.x, -stepA.y)
+                if exitSteps then
+                    stepA = { x = -stepA.x, y = -stepA.y }
+                    steps = exitSteps
+                end
+            end
+        end
+        a.x = a.x + stepA.x * steps
+        a.y = a.y + stepA.y * steps
+    end
+    if b.movement then
+        local stepB = stepVector(b)
+        local steps = b.movement.stepsRemaining
+        if isShipAsteroid and b == ship then
+            local aw, ah = asteroid.w or 1, asteroid.h or 1
+            local exitSteps = stepsToExitRect(b.x, b.y, asteroid.x, asteroid.y, aw, ah, stepB.x, stepB.y)
+            if exitSteps then
+                steps = exitSteps
+            else
+                -- Try opposite direction
+                exitSteps = stepsToExitRect(b.x, b.y, asteroid.x, asteroid.y, aw, ah, -stepB.x, -stepB.y)
+                if exitSteps then
+                    stepB = { x = -stepB.x, y = -stepB.y }
+                    steps = exitSteps
+                end
+            end
+        end
+        b.x = b.x + stepB.x * steps
+        b.y = b.y + stepB.y * steps
+    end
+    
+    -- After moving by new burst, check if objects are still colliding (same tile or
+    -- adjacent and pushing). If so, don't clear movement - let them grind next tick.
+    local stillColliding = false
+    if consumeBurst then
+        local sameTile = a.x == b.x and a.y == b.y
+        local adjacent, axis = false, nil
+        if a.x == b.x and math.abs(a.y - b.y) == 1 then
+            adjacent, axis = true, "y"
+        elseif a.y == b.y and math.abs(a.x - b.x) == 1 then
+            adjacent, axis = true, "x"
+        end
+        local function pushesToward(mover, target, ax)
+            local m = mover.momentum[ax]
+            local delta = target[ax] - mover[ax]
+            return (m > 0 and delta > 0) or (m < 0 and delta < 0)
+        end
+        if sameTile or (adjacent and (pushesToward(a, b, axis) or pushesToward(b, a, axis))) then
+            stillColliding = true
+        end
+    end
+    
+    if consumeBurst and not stillColliding then
+        if a.movement then a.movement = nil end
+        if b.movement then b.movement = nil end
+    end
+    
+    -- Clamp positions to bounds (like wall bounce does)
+    local function clampPos(obj)
+        obj.x = math.max(0, math.min(obj.x, Config.GRID_WIDTH - 1))
+        obj.y = math.max(0, math.min(obj.y, Config.GRID_HEIGHT - 1))
+    end
+    clampPos(a)
+    clampPos(b)
 end
 
 -- ============================================================
@@ -207,24 +334,61 @@ end
 function GameState.advancePhase(state, actions)
     local phase = state.meta.phase
     local newState = deepCopy(state)
+    if not newState.meta.eventLog then
+        newState.meta.eventLog = {}
+    end
 
+    -- If in PLAN phase, first apply actions to ships (store pendingAction)
     if phase == "PLAN" then
-        -- Store pending actions on ships, advance to CALC.
-        -- pendingAction holds the player's plan: thrust (dir+power),
-        -- rotation (body turn), turretRotation (turret turn), shot
-        -- (turret shoot power). Kept on the ship until CALC resolves it.
         for _, action in ipairs(actions or {}) do
             local ship = findShip(newState, action.shipId)
             if ship then
                 ship.pendingAction = deepCopy(action)
             end
         end
+    end
+
+    -- Call advanceTick repeatedly until phase changes
+    local allEvents = {}
+    local initialPhase = newState.meta.phase
+    for _ = 1, 100000 do  -- safety cap
+        local tickState, tickEvents = GameState.advanceTick(newState)
+        newState = tickState
+        for _, e in ipairs(tickEvents) do
+            table.insert(allEvents, e)
+        end
+        if newState.meta.phase ~= initialPhase then
+            break
+        end
+    end
+
+    -- Append all events to eventLog
+    for _, e in ipairs(allEvents) do
+        table.insert(newState.meta.eventLog, e)
+    end
+
+    return newState
+end
+
+-- Advance one tick (handles ALL phases: PLAN, CALC, MOVE, SHOOT, END_TURN)
+-- @param state table - current game state
+-- @return table newState, table events
+function GameState.advanceTick(state)
+    local newState = deepCopy(state)
+    if not newState.meta.eventLog then
+        newState.meta.eventLog = {}
+    end
+    local events = {}
+    local phase = newState.meta.phase
+    local cor = Collision.getCor(newState)
+
+    if phase == "PLAN" then
+        -- PLAN → CALC (no actions applied here; actions are stored in advancePhase)
         newState.meta.phase = "CALC"
+        table.insert(events, { type = "-- Phase Change to CALC --", phase = "CALC", from = "PLAN" })
 
     elseif phase == "CALC" then
-        -- Apply rotations, thrust, fuel costs. Shots are NOT resolved here:
-        -- they are deferred to the SHOOT phase (pendingShot is stored so
-        -- that branch can resolve them later without re-reading action files).
+        -- Apply rotations, thrust, fuel costs. Shots deferred to SHOOT.
         for _, ship in ipairs(newState.ships) do
             local action = ship.pendingAction
             if action then
@@ -236,8 +400,6 @@ function GameState.advancePhase(state, actions)
                 end
                 local t = action.thrust
                 if t and t.dir and t.power and t.power > 0 then
-                    -- Fuel costs FUEL_COST_THRUST per power unit. If fuel is
-                    -- insufficient, apply only as much power as fuel allows.
                     local power = math.min(t.power, math.floor(ship.fuel / Config.FUEL_COST_THRUST))
                     if power > 0 then
                         local v = thrustToVector(t.dir, ship.facing, power)
@@ -246,19 +408,12 @@ function GameState.advancePhase(state, actions)
                         ship.fuel = ship.fuel - power * Config.FUEL_COST_THRUST
                     end
                 end
-                -- Shots are deferred: stash the plan for the SHOOT phase.
+                -- Shots deferred: stash for SHOOT phase
                 ship.pendingShot = deepCopy(action.shot)
                 ship.pendingAction = nil
             end
         end
-        -- Pre-build movement for every object carrying momentum (ships that
-        -- just thrust AND asteroids that carry drift from PLAN). This runs
-        -- exactly once per MOVE phase: advanceTick only consumes steps, so
-        -- each object executes ONE burst of its momentum per turn (the
-        -- canonical chain: asteroids "finished drift at (11,10)" after a
-        -- single E,E,S). Rebuilding on every tick would make objects drift
-        -- their momentum repeatedly whenever bursts of different lengths
-        -- overlap, which also means extra wall-bounce damage.
+        -- Pre-build movement for objects with momentum
         for _, obj in ipairs(newState.ships) do
             if obj.movement == nil and (obj.momentum.x ~= 0 or obj.momentum.y ~= 0) then
                 obj.movement = buildMovement(obj.momentum)
@@ -270,34 +425,132 @@ function GameState.advancePhase(state, actions)
             end
         end
         newState.meta.phase = "MOVE"
+        table.insert(events, { type = "-- Phase Change to MOVE --", phase = "MOVE", from = "CALC" })
 
     elseif phase == "MOVE" then
-        -- Run all ticks until every object has finished moving.
-        -- advanceTick() moves every object one tile and flips the phase to
-        -- "SHOOT" as soon as nothing is moving anymore.
-        -- Safety cap. Movement always terminates because every tick either
-        -- consumes >=1 step or causes >=1 bounce, and each wall bounce reduces
-        -- the momentum component by >=1 (COR = 1: M -> M-1 -> M-2 -> ...).
-        -- A single burst of length M thus costs sum(M..1) ticks plus one
-        -- tick per bounce, which spans thousands of ticks for large M (e.g.
-        -- M=60 costs ~1830 ticks), so the cap is set well above that.
-        for _ = 1, 100000 do  -- safety cap; movement always terminates
-            if newState.meta.phase ~= "MOVE" then
-                break
+        -- Lockstep: every moving object steps exactly 1 tile
+        for _, obj in ipairs(newState.ships) do
+            if obj.movement then
+                local step = stepVector(obj)
+                local nx, ny = obj.x + step.x, obj.y + step.y
+                if not inBounds(nx, ny) then
+                    handleWallBounce(obj, step.x ~= 0 and "x" or "y", cor, events)
+                else
+                    local from = { x = obj.x, y = obj.y }
+                    obj.x, obj.y = nx, ny
+                    local stepDir = vectorToDirection(step)
+                    obj.movement.direction = stepDir
+                    obj.movement.stepsRemaining = obj.movement.stepsRemaining - 1
+                    if obj.movement.stepsRemaining <= 0 then obj.movement = nil end
+                    table.insert(events, { type = "movementStep", objectId = obj.id,
+                                           from = from, to = { x = nx, y = ny },
+                                           direction = stepDir })
+                end
             end
-            newState = GameState.advanceTick(newState)
         end
-        -- Events from internal ticks are dropped: advancePhase returns
-        -- only the state, per its existing signature.
+        for _, obj in ipairs(newState.asteroids or {}) do
+            if obj.movement then
+                local step = stepVector(obj)
+                local nx, ny = obj.x + step.x, obj.y + step.y
+                if not inBounds(nx, ny) then
+                    handleWallBounce(obj, step.x ~= 0 and "x" or "y", cor, events)
+                else
+                    local from = { x = obj.x, y = obj.y }
+                    obj.x, obj.y = nx, ny
+                    local stepDir = vectorToDirection(step)
+                    obj.movement.direction = stepDir
+                    obj.movement.stepsRemaining = obj.movement.stepsRemaining - 1
+                    if obj.movement.stepsRemaining <= 0 then obj.movement = nil end
+                    table.insert(events, { type = "movementStep", objectId = obj.id,
+                                           from = from, to = { x = nx, y = ny },
+                                           direction = stepDir })
+                end
+            end
+        end
+
+        -- pushingToward helper
+        local function pushesToward(mover, target, ax)
+            local m = mover.momentum[ax]
+            local delta = target[ax] - mover[ax]
+            return (m > 0 and delta > 0) or (m < 0 and delta < 0)
+        end
+
+        -- Ship-ship collisions
+        local ships = newState.ships
+        for i = 1, #ships do
+            for j = i + 1, #ships do
+                local a, b = ships[i], ships[j]
+                if not (a.hp and a.hp <= 0 or b.hp and b.hp <= 0) then
+                    local sameTile = a.x == b.x and a.y == b.y
+                    local adjacent, axis = false, nil
+                    if a.x == b.x and math.abs(a.y - b.y) == 1 then
+                        adjacent, axis = true, "y"
+                    elseif a.y == b.y and math.abs(a.x - b.x) == 1 then
+                        adjacent, axis = true, "x"
+                    end
+                    if sameTile or (adjacent and (pushesToward(a, b, axis) or pushesToward(b, a, axis))) then
+                        handleObjectCollision(a, b, cor, events, 1)
+                    end
+                end
+            end
+        end
+
+        -- Ship-asteroid collisions
+        for _, ship in ipairs(newState.ships) do
+            if ship.hp and ship.hp > 0 then
+                for _, ast in ipairs(newState.asteroids or {}) do
+                    local inside = ship.x >= ast.x and ship.x < ast.x + (ast.w or 1)
+                               and ship.y >= ast.y and ship.y < ast.y + (ast.h or 1)
+                    if inside then
+                        handleObjectCollision(ship, ast, cor, events, 1, "shipAsteroidCollision")
+                    end
+                end
+            end
+        end
+
+        -- Asteroid-asteroid collisions
+        local asteroids = newState.asteroids
+        if asteroids then
+            for i = 1, #asteroids do
+                for j = i + 1, #asteroids do
+                    local astA, astB = asteroids[i], asteroids[j]
+                    local aw, ah = astA.w or 1, astA.h or 1
+                    local bw, bh = astB.w or 1, astB.h or 1
+                    local ax1, ay1 = astA.x, astA.y
+                    local ax2, ay2 = astA.x + aw, astA.y + ah
+                    local bx1, by1 = astB.x, astB.y
+                    local bx2, by2 = astB.x + bw, astB.y + bh
+                    if ax1 < bx2 and bx1 < ax2 and ay1 < by2 and by1 < ay2 then
+                        handleObjectCollision(astA, astB, cor, events, 0, "asteroidCollision")
+                    end
+                end
+            end
+        end
+
+        -- Remove destroyed ships
+        for i = #ships, 1, -1 do
+            if ships[i].hp and ships[i].hp <= 0 then
+                table.insert(events, { type = "shipDestroyed", shipId = ships[i].id,
+                                       x = ships[i].x, y = ships[i].y })
+                table.remove(ships, i)
+            end
+        end
+
+        -- If nothing moving, advance to SHOOT
+        local anyMoving = false
+        for _, obj in ipairs(newState.ships) do
+            if obj.movement then anyMoving = true end
+        end
+        for _, obj in ipairs(newState.asteroids or {}) do
+            if obj.movement then anyMoving = true end
+        end
+        if not anyMoving then
+            newState.meta.phase = "SHOOT"
+            table.insert(events, { type = "-- Phase Change to  SHOOT--", phase = "SHOOT", from = "MOVE" })
+        end
 
     elseif phase == "SHOOT" then
-        -- Resolve shots deferred from CALC (pendingShot on each ship, no
-        -- re-reading of action files). Damage equals shot power per the
-        -- project plan; TURRET_DAMAGE is not applied for now.
-        local events = {}
-        -- Walk the turret's line of fire outward from the ship. The first
-        -- obstacle in LOS stops the beam: an asteroid absorbs it (solid
-        -- rock), the first ship on a tile takes full damage (no penetration).
+        -- Resolve shots deferred from CALC
         local function resolveShot(ship)
             local shot = ship.pendingShot
             if not shot or not shot.power then
@@ -337,8 +590,7 @@ function GameState.advancePhase(state, actions)
         for _, ship in ipairs(newState.ships) do
             resolveShot(ship)
         end
-        -- Remove destroyed ships (reverse loop, like advanceTick does).
-        -- Shots resolve in a fixed order; survivors keep what hp they have.
+        -- Remove destroyed ships
         local ships = newState.ships
         for i = #ships, 1, -1 do
             if ships[i].hp and ships[i].hp <= 0 then
@@ -347,16 +599,15 @@ function GameState.advancePhase(state, actions)
                 table.remove(ships, i)
             end
         end
-        -- Events from the shootout are dropped: advancePhase returns only
-        -- the state, per its existing signature.
         newState.meta.phase = "END_TURN"
+        table.insert(events, { type = "-- Phase Change to  END_TURN--", phase = "END_TURN", from = "SHOOT" })
 
     elseif phase == "END_TURN" then
-        -- Shots were for this turn only
+        -- Clear pending shots
         for _, ship in ipairs(newState.ships) do
             ship.pendingShot = nil
         end
-        -- Advance the planning cursor; wrap around to turn N+1 after the last player
+        -- Advance player/turn
         local numPlayers = newState.meta.players or Config.PLAYERS
         newState.meta.currentPlayer = newState.meta.currentPlayer + 1
         if newState.meta.currentPlayer > numPlayers then
@@ -364,159 +615,7 @@ function GameState.advancePhase(state, actions)
             newState.meta.turn = newState.meta.turn + 1
         end
         newState.meta.phase = "PLAN"
-    end
-
-    return newState
-end
-
--- Advance one tick (MOVE phase only)
--- @param state table - current game state
--- @return table newState, table events
-function GameState.advanceTick(state)
-    if state.meta.phase ~= "MOVE" then
-        return state, {}
-    end
-
-    local newState = deepCopy(state)
-    local events = {}
-    local cor = Collision.getCor(newState)
-
-    -- Movement was pre-built at CALC→MOVE entry (one burst per phase), so
-    -- this tick only consumes steps. States loaded directly at MOVE carry
-    -- their movement already; stopping is per-object via stepsRemaining.
-
-    -- 2. Lockstep: every moving object steps exactly 1 tile (walls checked
-    --    here — a bounce also consumes the tick, so the object stays put).
-    for _, obj in ipairs(newState.ships) do
-        if obj.movement then
-            local step = stepVector(obj)
-            local nx, ny = obj.x + step.x, obj.y + step.y
-            if not inBounds(nx, ny) then
-                -- Diagonal corner out-of-bounds resolves on x first
-                -- (wall-bounce worker owns this policy).
-                handleWallBounce(obj, step.x ~= 0 and "x" or "y", cor, events)
-            else
-                local from = { x = obj.x, y = obj.y }
-                obj.x, obj.y = nx, ny
-                local stepDir = vectorToDirection(step)
-                obj.movement.direction = stepDir
-                obj.movement.stepsRemaining = obj.movement.stepsRemaining - 1
-                if obj.movement.stepsRemaining <= 0 then obj.movement = nil end
-                table.insert(events, { type = "movementStep", objectId = obj.id,
-                                       from = from, to = { x = nx, y = ny },
-                                       direction = stepDir })
-            end
-        end
-    end
-    for _, obj in ipairs(newState.asteroids or {}) do
-        if obj.movement then
-            local step = stepVector(obj)
-            local nx, ny = obj.x + step.x, obj.y + step.y
-            if not inBounds(nx, ny) then
-                -- Diagonal corner out-of-bounds resolves on x first
-                -- (wall-bounce worker owns this policy).
-                handleWallBounce(obj, step.x ~= 0 and "x" or "y", cor, events)
-            else
-                local from = { x = obj.x, y = obj.y }
-                obj.x, obj.y = nx, ny
-                local stepDir = vectorToDirection(step)
-                obj.movement.direction = stepDir
-                obj.movement.stepsRemaining = obj.movement.stepsRemaining - 1
-                if obj.movement.stepsRemaining <= 0 then obj.movement = nil end
-                table.insert(events, { type = "movementStep", objectId = obj.id,
-                                       from = from, to = { x = nx, y = ny },
-                                       direction = stepDir })
-            end
-        end
-    end
-
-    -- pushingToward: momentum on that axis points at the other ship
-    local function pushesToward(mover, target, ax)
-        local m = mover.momentum[ax]
-        local delta = target[ax] - mover[ax]
-        return (m > 0 and delta > 0) or (m < 0 and delta < 0)
-    end
-
-    -- 3. Ship-ship collisions. A crash happens when two ships either share
-    --    a tile OR are adjacent on one axis with at least one pushing into
-    --    the other (catches head-on swaps that never occupy the same tile,
-    --    e.g. ships 9 tiles apart each moving 4 — they end 1 apart at tick
-    --    4 and must crash).
-    local ships = newState.ships
-    for i = 1, #ships do
-        for j = i + 1, #ships do
-            local a, b = ships[i], ships[j]
-            if not (a.hp and a.hp <= 0 or b.hp and b.hp <= 0) then
-                local sameTile = a.x == b.x and a.y == b.y
-                local adjacent, axis = false, nil
-                if a.x == b.x and math.abs(a.y - b.y) == 1 then
-                    adjacent, axis = true, "y"
-                elseif a.y == b.y and math.abs(a.x - b.x) == 1 then
-                    adjacent, axis = true, "x"
-                end
-                if sameTile or (adjacent and (pushesToward(a, b, axis) or pushesToward(b, a, axis))) then
-                    handleObjectCollision(a, b, cor, events, 1)
-                end
-            end
-        end
-    end
-
-    -- 4. Ship-asteroid collisions: a ship whose tile is inside an asteroid's
-    --    rect resolves an object collision through the module. The ship takes
-    --    1 damage (only objects with hp are damaged), and the asteroid recoils
-    --    / swaps momentum per COR — so the rock is no longer static. The
-    --    asteroid-rect `inside` check is unchanged.
-    for _, ship in ipairs(newState.ships) do
-        if ship.hp and ship.hp > 0 then
-            for _, ast in ipairs(newState.asteroids or {}) do
-                local inside = ship.x >= ast.x and ship.x < ast.x + (ast.w or 1)
-                           and ship.y >= ast.y and ship.y < ast.y + (ast.h or 1)
-                if inside then
-                    handleObjectCollision(ship, ast, cor, events, 1, "shipAsteroidCollision")
-                end
-            end
-        end
-    end
-
-    -- 5. Asteroid-asteroid collisions: rect-overlap; rocks grind with no
-    --    damage (no hp anyway). Momentum resolves per COR on both axes.
-    local asteroids = newState.asteroids
-    if asteroids then
-        for i = 1, #asteroids do
-            for j = i + 1, #asteroids do
-                local astA, astB = asteroids[i], asteroids[j]
-                local aw, ah = astA.w or 1, astA.h or 1
-                local bw, bh = astB.w or 1, astB.h or 1
-                local ax1, ay1 = astA.x, astA.y
-                local ax2, ay2 = astA.x + aw, astA.y + ah
-                local bx1, by1 = astB.x, astB.y
-                local bx2, by2 = astB.x + bw, astB.y + bh
-                if ax1 < bx2 and bx1 < ax2 and ay1 < by2 and by1 < ay2 then
-                    handleObjectCollision(astA, astB, cor, events, 0, "asteroidCollision")
-                end
-            end
-        end
-    end
-
-    -- 6. Remove destroyed ships at the END of the tick (after all pair checks).
-    for i = #ships, 1, -1 do
-        if ships[i].hp and ships[i].hp <= 0 then
-            table.insert(events, { type = "shipDestroyed", shipId = ships[i].id,
-                                   x = ships[i].x, y = ships[i].y })
-            table.remove(ships, i)
-        end
-    end
-
-    -- 7. If nothing is moving anymore, movement is done → SHOOT phase.
-    local anyMoving = false
-    for _, obj in ipairs(newState.ships) do
-        if obj.movement then anyMoving = true end
-    end
-    for _, obj in ipairs(newState.asteroids or {}) do
-        if obj.movement then anyMoving = true end
-    end
-    if not anyMoving then
-        newState.meta.phase = "SHOOT"
+        table.insert(events, { type = "-- Phase Change to  PLAN--", phase = "PLAN", from = "END_TURN" })
     end
 
     return newState, events

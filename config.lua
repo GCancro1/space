@@ -13,10 +13,12 @@ return {
     SHIP_FUEL = 20,
 
     -- Turret
-    TURRET_RANGE = 10,
+    TURRET_RANGE = 5,
     TURRET_POWER_MAX = 4,
     TURRET_DAMAGE = 1,
-    ASTEROID_HP = 2,
+
+    ASTEROID_HP = 1,
+
 
     -- Fuel costs
     FUEL_COST_THRUST = 1,
@@ -78,7 +80,7 @@ return {
     FACING_LIST = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"},
 
     -- Sidebar
-    SIDEBAR_WIDTH = 1200,
+    SIDEBAR_WIDTH = 400,
     SIDEBAR_BG = {0.1, 0.1, 0.15},
     SIDEBAR_BORDER = {0.25, 0.25, 0.3},
     SIDEBAR_SECTION_BG = {0.15, 0.15, 0.2},

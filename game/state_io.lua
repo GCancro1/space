@@ -1,7 +1,6 @@
 local json = require("ai.vendor.json")
 local StateIO = {}
 
--- Load state from JSON file
 -- @param path string - path relative to love.filesystem.getSaveDirectory()
 -- @return table|nil, string|nil - state table or nil + error message
 function StateIO.load(path)
@@ -16,7 +15,6 @@ function StateIO.load(path)
 	return state
 end
 
--- Save state to JSON file
 -- @param state table - state table to save
 -- @param path string - path relative to love.filesystem.getSaveDirectory()
 -- @return boolean, string|nil - success, or false + error message
@@ -28,10 +26,6 @@ function StateIO.save(state, path)
 	return true
 end
 
--- Save state to JSON file via plain Lua io. Writes through the process CWD,
--- so repo-relative paths (e.g. "states/play/000_CALC.json") land in the repo
--- when the game is launched from the project root. Pcall-guarded so a missing
--- directory never errors; the parent dir is created first.
 -- @param state table - state table to save
 -- @param path string - filesystem path (CWD-relative)
 -- @return boolean, string|nil - success, or false + error message
@@ -52,7 +46,6 @@ function StateIO.saveFs(state, path)
 	return true
 end
 
--- Load state from JSON file via plain Lua io (headless use, no love).
 -- @param path string - filesystem path (CWD-relative)
 -- @return table|nil, string|nil - state table or nil + error message
 function StateIO.loadFs(path)
@@ -69,9 +62,8 @@ function StateIO.loadFs(path)
 	return state
 end
 
--- Optional: list all state files in states/ directory
+-- if we need this its here? 
 function StateIO.listStates(directory)
-	-- TODO: implement using love.filesystem.getDirectoryItems
 	return love.filesystem.getDirectoryItems(directory)
 end
 

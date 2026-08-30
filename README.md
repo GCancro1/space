@@ -33,8 +33,10 @@ Run love with Ctrl + Shift + B
 3) Alternative way to run love is from the powershell command line
 
 ```
-....\space> & 'C:\Program Files\LOVE\love.exe' .
+....\space> & 'C:\Program Files\LOVE\love.exe' . --console
 ```
+
+**NOTE** - the '--console'  allows print statements to work in powershell
 
 ### Getting Started Linux
 1) Install Love

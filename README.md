@@ -48,3 +48,20 @@ sudo apt update && sudo apt install love
 love .
 ```
 
+3) To get x11 to display back (if running vscode on windows remote to linux)
+
+    - Install vcxsrv (https://sourceforge.net/projects/vcxsrv/)
+    - Set up host file like this...
+
+    ```
+    Host BasementUbuntu
+        HostName 10.0.0.86
+        User george
+        ForwardAgent yes
+        ForwardX11 yes
+        ForwardX11Trusted yes
+    ```
+    - Start VcXsrv using XLaunch desktop icon (to know if its running, check system tray...double click to close it)
+    - Connect to remote in vscode
+
+    **NOTE** This failed with response "X connection to localhost:10.0 broken (explicit kill or server shutdown)" when running    $ love .
